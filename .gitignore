@@ -1,0 +1,18 @@
+# Environnement virtuel
+.venv/
+venv/
+
+# Secrets et clés API
+.env
+.env.*
+!.env.example
+
+# Fichiers temporaires Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Fichiers personnels
+*.pdf
+
+histories/
