@@ -1,6 +1,18 @@
-.venv/
+﻿.venv/
 .env
 *.db
 __pycache__/
 data/uploads/*
 !data/uploads/.gitkeep
+# Environnement virtuel
+venv/
+
+# Secrets et cl├⌐s API
+.env.*
+!.env.example
+# Fichiers temporaires Python
+*.pyc
+.pytest_cache/
+# Fichiers personnels
+*.pdf
+histories/
