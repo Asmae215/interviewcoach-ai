@@ -10,7 +10,7 @@
 | 3 | Base de données et profil candidat | F1 | ✅ fait | — | ac0f213. Branche de Lina fusionnée (18dbb27) : `backend/ai/` à rebrancher sur `services/llm.py`. |
 | 4 | Import du CV PDF et extraction du texte | F1, F2 | ✅ fait | 2026-11-26 | Validée par Asmae (test manuel Streamlit + /docs). | Route `POST /candidates/{id}/cv` (PDF, 5 Mo, nom UUID), correction `PUT /cvs/{id}/text`, suppression fichier + candidat. 4 CV fictifs + scanné + invalide dans `tests/fixtures/`. 19 tests pytest OK. Page Streamlit dépôt/correction. |
 | 5 | Analyse du CV par le LLM | F2 | ✅ fait | 2026-11-26 | Validée par Asmae (test réel `tests.manual_cv_analysis` + Streamlit). | `POST /cvs/{id}/analyze` (consentement obligatoire côté backend), consignes `prompts/cv_analysis_{fr,en}.txt` (CV = données), JSON validé Pydantic + 2 réessais, compétences absentes du CV retirées. 31 tests pytest OK (LLM simulé). Test réel à lancer : `python -m tests.manual_cv_analysis`. Client de Lina rebranché sur `services/llm.py`. |
-| 6 | Entretien avec le recruteur IA | F4 | à faire | | |
+| 6 | Entretien avec le recruteur IA | F4 | 🧪 en validation | 2026-11-26 | Option 1 : `services/interviewer.py` réutilise la banque de questions de Lina (`question_selector`) pour technique/mixte. 6/7/8 questions selon la difficulté, une à la fois, max 1 relance par question, analyse du CV + historique envoyés à chaque appel, messages en base. CV bloquant vérifié côté backend (409). Colonne `interviews.state` + mini-migration. 51 tests pytest OK. Test réel : `python -m tests.manual_interview`. |
 | 7 | Avis du recruteur et améliorations | F5 | à faire | | |
 | 8 | Tableau de bord et progression (+ connexion) | F7 | à faire | | |
 | 9 | Tests sur scénarios prédéfinis | – | à faire | | |
