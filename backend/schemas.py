@@ -115,6 +115,55 @@ class InterviewOut(BaseModel):
     created_at: datetime
 
 
+# --- Avis du recruteur et améliorations (étape 7) ---
+
+class CriterionScore(BaseModel):
+    score: int = Field(ge=1, le=5)
+    justification: str = Field(min_length=10)  # justification obligatoire
+
+
+class Scores(BaseModel):
+    """Grille fixe d'évaluation."""
+
+    pertinence: CriterionScore
+    clarte: CriterionScore
+    argumentation: CriterionScore
+    connaissances_techniques: CriterionScore
+
+
+class WeakestAnswer(BaseModel):
+    index: int  # numéro de l'échange (1 = première question)
+    why: str = Field(min_length=10)
+    improved_answer: str = Field(min_length=20)  # reformulation suggérée
+
+
+class Evaluation(BaseModel):
+    """Format JSON attendu de l'évaluateur ; toute réponse est validée avec ce modèle."""
+
+    scores: Scores
+    strengths: list[str] = Field(min_length=1, max_length=5)
+    improvements: list[str] = Field(min_length=1, max_length=6)
+    weakest_answer: WeakestAnswer
+    overall_feedback: str = Field(min_length=20)
+
+
+class WeakestAnswerOut(WeakestAnswer):
+    question: str
+    answer: str
+
+
+class ReportOut(BaseModel):
+    interview_id: int
+    scores: Scores
+    average: float
+    strengths: list[str]
+    improvements: list[str]
+    weakest_answer: WeakestAnswerOut
+    overall_feedback: str
+    disclaimer: str  # « scores pédagogiques, pas une décision de recrutement »
+    created_at: datetime
+
+
 class CVOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

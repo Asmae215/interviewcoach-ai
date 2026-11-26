@@ -85,6 +85,8 @@ class Report(Base):
     scores: Mapped[str | None] = mapped_column(Text, default=None)
     summary: Mapped[str | None] = mapped_column(Text, default=None)
     improvements: Mapped[str | None] = mapped_column(Text, default=None)
+    # Rapport complet en JSON (justifications, points forts, reformulation...)
+    details: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     interview: Mapped["Interview"] = relationship(back_populates="report")

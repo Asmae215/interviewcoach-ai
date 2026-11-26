@@ -15,7 +15,7 @@ RETRY_NOTE = {
 }
 
 # Balises qui entourent les données (CV, réponses...) dans les prompts
-DATA_TAGS = r"cv|cv_analysis|historique|history|reponse|answer|question_source"
+DATA_TAGS = r"cv|cv_analysis|historique|history|reponse|answer|question_source|entretien|interview"
 
 # Messages montrés au candidat quand le LLM échoue (réutilisés par les routes)
 LLM_ERROR_MESSAGES: dict[str, dict[str, str]] = {
