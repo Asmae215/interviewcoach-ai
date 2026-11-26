@@ -1,6 +1,6 @@
 ﻿from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "interviewcoach.db"
@@ -23,3 +23,22 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def add_missing_columns() -> None:
+    """Mini-migration : ajoute aux tables existantes les colonnes créées après coup.
+
+    create_all() crée les tables manquantes mais ne modifie pas une table qui existe déjà.
+    """
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name not in existing:
+                column_type = column.type.compile(engine.dialect)
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(f"ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}")
+                    )

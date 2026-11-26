@@ -50,6 +50,8 @@ class Interview(Base):
     difficulty: Mapped[str] = mapped_column(String(30))
     language: Mapped[str] = mapped_column(String(2), default="fr")
     status: Mapped[str] = mapped_column(String(20), default="en_cours")
+    # Progression de l'entretien en JSON (questions posées, relance, analyse du CV utilisée)
+    state: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     candidate: Mapped["Candidate"] = relationship(back_populates="interviews")
