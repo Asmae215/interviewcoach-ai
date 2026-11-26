@@ -17,7 +17,10 @@ class LLMError(Exception):
 def _post_with_retry(url: str, headers: dict, body: dict) -> dict:
     last_error = ""
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        response = requests.post(url, headers=headers, json=body, timeout=60)
+        try:
+            response = requests.post(url, headers=headers, json=body, timeout=60)
+        except requests.RequestException as error:  # réseau coupé, délai dépassé...
+            raise LLMError(f"Service injoignable : {error}") from error
         if response.status_code == 200:
             return response.json()
         last_error = f"Erreur {response.status_code} : {response.text[:300]}"
@@ -28,7 +31,9 @@ def _post_with_retry(url: str, headers: dict, body: dict) -> dict:
     raise LLMError(last_error)
 
 
-def _gemini(prompt: str, system: str | None, temperature: float, max_tokens: int) -> str:
+def _gemini(
+    prompt: str, system: str | None, temperature: float, max_tokens: int, json_mode: bool
+) -> str:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise LLMError("GEMINI_API_KEY manquante dans .env")
@@ -40,6 +45,8 @@ def _gemini(prompt: str, system: str | None, temperature: float, max_tokens: int
     }
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
+    if json_mode:
+        body["generationConfig"]["responseMimeType"] = "application/json"
     data = _post_with_retry(
         url, {"x-goog-api-key": key, "Content-Type": "application/json"}, body
     )
@@ -49,7 +56,9 @@ def _gemini(prompt: str, system: str | None, temperature: float, max_tokens: int
         raise LLMError(f"Réponse Gemini inattendue : {str(data)[:300]}")
 
 
-def _groq(prompt: str, system: str | None, temperature: float, max_tokens: int) -> str:
+def _groq(
+    prompt: str, system: str | None, temperature: float, max_tokens: int, json_mode: bool
+) -> str:
     key = os.getenv("GROQ_API_KEY")
     if not key:
         raise LLMError("GROQ_API_KEY manquante dans .env")
@@ -64,6 +73,8 @@ def _groq(prompt: str, system: str | None, temperature: float, max_tokens: int) 
         "temperature": temperature,
         "max_completion_tokens": max_tokens,
     }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
     data = _post_with_retry(
         "https://api.groq.com/openai/v1/chat/completions",
         {"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -86,11 +97,13 @@ def ask_llm(
     system: str | None = None,
     temperature: float = 0.7,
     max_tokens: int = 2048,
+    json_mode: bool = False,
 ) -> str:
     """Envoie un message au modèle et renvoie sa réponse en texte.
 
     Le fournisseur principal est choisi par LLM_PROVIDER dans .env
     (gemini ou groq) ; en cas d'échec, l'autre est essayé.
+    json_mode=True demande au modèle de répondre uniquement en JSON.
     """
     primary = os.getenv("LLM_PROVIDER", "gemini").lower()
     if primary not in PROVIDERS:
@@ -100,7 +113,7 @@ def ask_llm(
     errors = []
     for name in order:
         try:
-            return PROVIDERS[name](prompt, system, temperature, max_tokens).strip()
+            return PROVIDERS[name](prompt, system, temperature, max_tokens, json_mode).strip()
         except LLMError as error:
             errors.append(f"{name} : {error}")
     raise LLMError(" | ".join(errors))
