@@ -1,0 +1,22 @@
+# Déploiement Render (Blueprint) : service web gratuit construit depuis le Dockerfile.
+# Les valeurs secrètes (sync: false) se saisissent dans le tableau de bord Render, jamais ici.
+services:
+  - type: web
+    name: interviewcoach-ai
+    runtime: docker
+    plan: free
+    branch: integration/lina-ai
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-20b
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false

@@ -1,2 +1,5 @@
 # Les PDF sont des fichiers binaires : Git ne doit jamais modifier leurs fins de ligne
 *.pdf binary
+# Scripts lancés dans le conteneur Linux : toujours des fins de ligne Unix (LF)
+*.sh text eol=lf
+Dockerfile text eol=lf
