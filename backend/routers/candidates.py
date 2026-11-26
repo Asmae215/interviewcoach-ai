@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import Candidate
 from backend.schemas import CandidateCreate, CandidateOut, CandidateUpdate
+from backend.services.cv_storage import delete_cv_file
 
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 
@@ -49,5 +50,9 @@ def update_candidate(
 @router.delete("/{candidate_id}", status_code=204)
 def delete_candidate(candidate_id: int, db: Session = Depends(get_db)):
     candidate = get_candidate_or_404(db, candidate_id)
+    # Les lignes (CV, entretiens, rapports) partent en cascade ; les fichiers PDF aussi
+    cv_files = [cv.file_path for cv in candidate.cvs]
     db.delete(candidate)
     db.commit()
+    for name in cv_files:
+        delete_cv_file(name)

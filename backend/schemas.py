@@ -1,7 +1,7 @@
 ﻿from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Level = Literal["etudiant", "junior", "confirme"]
 Language = Literal["fr", "en"]
@@ -29,4 +29,23 @@ class CandidateOut(BaseModel):
     target_job: str
     level: str
     language: str
+    created_at: datetime
+
+
+# Texte du CV corrigé par le candidat (espaces retirés au début et à la fin)
+CVText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=50, max_length=50_000)
+]
+
+
+class CVTextUpdate(BaseModel):
+    text: CVText
+
+
+class CVOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    candidate_id: int
+    extracted_text: str | None
     created_at: datetime
