@@ -1,7 +1,8 @@
-﻿from datetime import datetime
+﻿import json
+from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 Level = Literal["etudiant", "junior", "confirme"]
 Language = Literal["fr", "en"]
@@ -42,10 +43,55 @@ class CVTextUpdate(BaseModel):
     text: CVText
 
 
+# --- Analyse du CV par le LLM (étape 5) ---
+
+class Experience(BaseModel):
+    title: str
+    organization: str = ""
+    period: str = ""
+    highlights: list[str] = []
+
+
+class Education(BaseModel):
+    degree: str
+    school: str = ""
+    year: str = ""
+
+
+class Project(BaseModel):
+    name: str
+    description: str = ""
+
+
+class CVAnalysis(BaseModel):
+    """Format JSON attendu du LLM ; toute réponse est validée avec ce modèle."""
+
+    summary: str
+    skills: list[str]
+    experiences: list[Experience]
+    education: list[Education]
+    projects: list[Project]
+    weaknesses: list[str]
+
+
+class AnalyzeRequest(BaseModel):
+    # Accord explicite du candidat avant l'envoi de son CV au service d'IA
+    consent: bool
+
+
 class CVOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     candidate_id: int
     extracted_text: str | None
+    analysis: CVAnalysis | None = None
     created_at: datetime
+
+    @field_validator("analysis", mode="before")
+    @classmethod
+    def parse_analysis(cls, value: object) -> object:
+        """En base, l'analyse est stockée en texte JSON."""
+        if isinstance(value, str):
+            return json.loads(value)
+        return value

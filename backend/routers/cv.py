@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import CV
 from backend.routers.candidates import get_candidate_or_404
-from backend.schemas import CVOut, CVTextUpdate
+from backend.schemas import AnalyzeRequest, CVOut, CVTextUpdate
+from backend.services import cv_analyzer
 from backend.services.cv_parser import CVParseError, error_message, extract_text
 from backend.services.cv_storage import delete_cv_file, save_cv_file
+from backend.services.llm import LLMError
 
 router = APIRouter(tags=["cv"])
 
@@ -17,10 +19,12 @@ MAX_CV_SIZE = 5 * 1024 * 1024  # 5 Mo
 
 def cv_error(status_code: int, code: str, language: str) -> HTTPException:
     """Erreur avec un code stable (pour le frontend) et un message lisible."""
-    return HTTPException(
-        status_code=status_code,
-        detail={"code": code, "message": error_message(code, language)},
-    )
+    if code in cv_analyzer.MESSAGES:
+        messages = cv_analyzer.MESSAGES[code]
+        message = messages.get(language, messages["fr"])
+    else:
+        message = error_message(code, language)
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
 def get_cv_or_404(db: Session, cv_id: int) -> CV:
@@ -71,6 +75,34 @@ def update_cv_text(cv_id: int, data: CVTextUpdate, db: Session = Depends(get_db)
     cv = get_cv_or_404(db, cv_id)
     cv.extracted_text = data.text
     cv.analysis = None
+    db.commit()
+    db.refresh(cv)
+    return cv
+
+
+@router.post("/cvs/{cv_id}/analyze", response_model=CVOut)
+def analyze_cv(cv_id: int, data: AnalyzeRequest, db: Session = Depends(get_db)):
+    """Envoie le texte du CV au LLM (avec l'accord du candidat) et enregistre l'analyse."""
+    cv = get_cv_or_404(db, cv_id)
+    candidate = cv.candidate
+    language = candidate.language
+
+    # Consentement vérifié côté serveur : sans accord, rien n'est envoyé au LLM
+    if not data.consent:
+        raise cv_error(403, "consent_required", language)
+    if not cv.extracted_text:
+        raise cv_error(422, "no_text", language)
+
+    try:
+        analysis = cv_analyzer.analyze_cv(
+            cv.extracted_text, candidate.target_job, candidate.level, language
+        )
+    except LLMError as err:
+        raise cv_error(503, "llm_unavailable", language) from err
+    except cv_analyzer.CVAnalysisError as err:
+        raise cv_error(502, "analysis_failed", language) from err
+
+    cv.analysis = analysis.model_dump_json()
     db.commit()
     db.refresh(cv)
     return cv
