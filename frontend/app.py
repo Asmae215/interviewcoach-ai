@@ -1,148 +1,43 @@
-"""Interface Streamlit — étape 4 : profil candidat, dépôt du CV et correction du texte."""
+"""Interface Streamlit : connexion, entraînement (CV → analyse → entretien → avis), tableau de bord."""
 
 import os
+from datetime import datetime
 
+import altair as alt
+import pandas as pd
 import requests
 import streamlit as st
 
+from texts import CRITERIA_COLORS, DIFFICULTIES, INTERVIEW_TYPES, LEVELS, TEXTS
+
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
-TEXTS = {
-    "fr": {
-        "title": "InterviewCoach AI",
-        "profile": "1. Ton profil",
-        "name": "Nom",
-        "job": "Poste visé",
-        "level": "Niveau",
-        "create": "Créer mon profil",
-        "created": "Profil créé.",
-        "cv": "2. Ton CV (PDF, 5 Mo max)",
-        "send": "Envoyer le CV",
-        "check": "3. Vérifie le texte extrait et corrige-le si besoin",
-        "save": "Enregistrer les corrections",
-        "saved": "Texte enregistré.",
-        "api_down": "Le serveur ne répond pas. Lance d'abord le backend (uvicorn).",
-        "analysis": "4. Analyse de ton CV par l'IA",
-        "consent_info": (
-            "Ton CV va être envoyé à un service d'IA externe (Google Gemini ou Groq) "
-            "pour être analysé. Il n'est pas utilisé pour entraîner un modèle."
-        ),
-        "consent": "J'accepte que mon CV soit analysé par une IA.",
-        "analyze": "Analyser mon CV",
-        "analyzing": "Analyse en cours…",
-        "summary": "Résumé",
-        "skills": "Compétences",
-        "experiences": "Expériences",
-        "education": "Formation",
-        "projects": "Projets",
-        "weaknesses": "Points à renforcer pour le poste",
-        "interview": "5. Entretien avec le recruteur IA",
-        "type": "Type d'entretien",
-        "difficulty": "Difficulté",
-        "start": "Commencer l'entretien",
-        "starting": "Le recruteur prépare sa première question…",
-        "thinking": "Le recruteur réfléchit…",
-        "progress": "Question {n} sur {total}",
-        "your_answer": "Ta réponse…",
-        "not_sent": "Ta réponse n'a pas été envoyée, tu peux la copier et réessayer :",
-        "finished": "Entretien terminé.",
-        "new_interview": "Nouvel entretien",
-        "report": "6. Avis du recruteur",
-        "evaluating": "Le recruteur prépare son avis…",
-        "retry": "Réessayer",
-        "average": "Moyenne",
-        "strengths": "Points forts",
-        "improvements": "Axes d'amélioration",
-        "weakest": "Ta réponse la plus faible",
-        "question": "Question",
-        "answer": "Ta réponse",
-        "why": "Pourquoi",
-        "improved": "Proposition de reformulation",
-        "overall": "Avis global",
-        "criteria": {
-            "pertinence": "Pertinence", "clarte": "Clarté",
-            "argumentation": "Argumentation", "connaissances_techniques": "Connaissances techniques",
-        },
-    },
-    "en": {
-        "title": "InterviewCoach AI",
-        "profile": "1. Your profile",
-        "name": "Name",
-        "job": "Target job",
-        "level": "Level",
-        "create": "Create my profile",
-        "created": "Profile created.",
-        "cv": "2. Your CV (PDF, 5 MB max)",
-        "send": "Upload CV",
-        "check": "3. Check the extracted text and fix it if needed",
-        "save": "Save corrections",
-        "saved": "Text saved.",
-        "api_down": "The server is not responding. Start the backend (uvicorn) first.",
-        "analysis": "4. AI analysis of your CV",
-        "consent_info": (
-            "Your CV will be sent to an external AI service (Google Gemini or Groq) "
-            "to be analysed. It is not used to train a model."
-        ),
-        "consent": "I agree that my CV is analysed by an AI.",
-        "analyze": "Analyse my CV",
-        "analyzing": "Analysing…",
-        "summary": "Summary",
-        "skills": "Skills",
-        "experiences": "Experience",
-        "education": "Education",
-        "projects": "Projects",
-        "weaknesses": "Areas to strengthen for the job",
-        "interview": "5. Interview with the AI recruiter",
-        "type": "Interview type",
-        "difficulty": "Difficulty",
-        "start": "Start the interview",
-        "starting": "The recruiter is preparing the first question…",
-        "thinking": "The recruiter is thinking…",
-        "progress": "Question {n} of {total}",
-        "your_answer": "Your answer…",
-        "not_sent": "Your answer was not sent, you can copy it and retry:",
-        "finished": "Interview over.",
-        "new_interview": "New interview",
-        "report": "6. Recruiter's feedback",
-        "evaluating": "The recruiter is preparing the feedback…",
-        "retry": "Retry",
-        "average": "Average",
-        "strengths": "Strengths",
-        "improvements": "Areas for improvement",
-        "weakest": "Your weakest answer",
-        "question": "Question",
-        "answer": "Your answer",
-        "why": "Why",
-        "improved": "Suggested rewrite",
-        "overall": "Overall feedback",
-        "criteria": {
-            "pertinence": "Relevance", "clarte": "Clarity",
-            "argumentation": "Reasoning", "connaissances_techniques": "Technical knowledge",
-        },
-    },
-}
-LEVELS = {
-    "fr": {"etudiant": "Étudiant", "junior": "Junior", "confirme": "Confirmé"},
-    "en": {"etudiant": "Student", "junior": "Junior", "confirme": "Experienced"},
-}
-INTERVIEW_TYPES = {
-    "fr": {"rh": "RH", "technique": "Technique", "comportemental": "Comportemental", "mixte": "Mixte"},
-    "en": {"rh": "HR", "technique": "Technical", "comportemental": "Behavioural", "mixte": "Mixed"},
-}
-DIFFICULTIES = {
-    "fr": {"debutant": "Débutant", "intermediaire": "Intermédiaire", "avance": "Avancé"},
-    "en": {"debutant": "Beginner", "intermediaire": "Intermediate", "avance": "Advanced"},
-}
+
+# --- Appels au backend ---
+
+def reset_session() -> None:
+    """Oublie tout (jeton, CV, entretien…) sauf la langue choisie."""
+    for key in list(st.session_state.keys()):
+        if key != "language":
+            del st.session_state[key]
 
 
 def call_api(method: str, path: str, t: dict, **kwargs) -> requests.Response | None:
-    """Appelle le backend ; affiche un message clair s'il ne répond pas."""
+    """Appelle le backend avec le jeton de connexion ; message clair s'il ne répond pas."""
     kwargs.setdefault("timeout", 30)
+    token = st.session_state.get("token")
+    if token:
+        kwargs.setdefault("headers", {})["Authorization"] = f"Bearer {token}"
     try:
-        return requests.request(method, f"{API_URL}{path}", **kwargs)
+        response = requests.request(method, f"{API_URL}{path}", **kwargs)
     except requests.RequestException:
         st.error(t["api_down"])
         return None
+    if response.status_code == 401 and token:  # session expirée : retour à la connexion
+        reset_session()
+        st.session_state.expired = True
+        st.rerun()
+    return response
 
 
 def show_error(response: requests.Response) -> None:
@@ -157,6 +52,13 @@ def show_error(response: requests.Response) -> None:
         detail = " ; ".join(err.get("msg", str(err)) for err in detail)
     st.error(str(detail))
 
+
+def format_date(value: str, language: str) -> str:
+    moment = datetime.fromisoformat(value)
+    return moment.strftime("%d/%m/%Y %H:%M" if language == "fr" else "%Y-%m-%d %H:%M")
+
+
+# --- Affichages réutilisés ---
 
 def show_analysis(analysis: dict, t: dict) -> None:
     """Affiche l'analyse structurée du CV."""
@@ -206,44 +108,79 @@ def show_report(report: dict, t: dict) -> None:
     st.write(report["overall_feedback"])
 
 
-language = st.sidebar.radio("Langue / Language", ["fr", "en"], format_func=str.upper)
-t = TEXTS[language]
-st.title(t["title"])
+def show_messages(messages: list[dict]) -> None:
+    for message in messages:
+        with st.chat_message("assistant" if message["role"] == "recruiter" else "user"):
+            st.write(message["content"])
 
-# 1. Profil
-st.header(t["profile"])
-if "candidate" not in st.session_state:
-    with st.form("profile"):
-        name = st.text_input(t["name"])
-        job = st.text_input(t["job"])
-        level = st.selectbox(t["level"], list(LEVELS[language]), format_func=LEVELS[language].get)
-        if st.form_submit_button(t["create"]):
-            payload = {"name": name, "target_job": job, "level": level, "language": language}
-            response = call_api("POST", "/candidates", t, json=payload)
-            if response is not None and response.status_code == 201:
-                st.session_state.candidate = response.json()
-                st.rerun()
-            elif response is not None:
-                show_error(response)
-else:
+
+# --- Page de connexion ---
+
+def start_session(data: dict, t: dict) -> None:
+    """Garde le jeton, puis recharge le dernier CV du candidat."""
+    st.session_state.token = data["token"]
+    st.session_state.candidate = data["candidate"]
+    # Appliquée au prochain affichage (un widget ne peut pas changer après sa création)
+    st.session_state.pending_language = data["candidate"]["language"]
+    response = call_api("GET", f"/candidates/{data['candidate']['id']}/cvs", t)
+    if response is not None and response.status_code == 200 and response.json():
+        st.session_state.cv = response.json()[0]
+    st.rerun()
+
+
+def page_login(t: dict, language: str) -> None:
+    if st.session_state.pop("expired", False):
+        st.warning(t["session_expired"])
+    login_tab, register_tab = st.tabs([t["login_tab"], t["register_tab"]])
+
+    with login_tab:
+        with st.form("login"):
+            username = st.text_input(t["username"])
+            password = st.text_input(t["password"], type="password")
+            if st.form_submit_button(t["login"]):
+                payload = {"username": username, "password": password, "language": language}
+                response = call_api("POST", "/auth/login", t, json=payload)
+                if response is not None and response.status_code == 200:
+                    start_session(response.json(), t)
+                elif response is not None:
+                    show_error(response)
+
+    with register_tab:
+        with st.form("register"):
+            name = st.text_input(t["name"])
+            username = st.text_input(t["username"], key="register_username")
+            password = st.text_input(t["password"], type="password", key="register_password")
+            job = st.text_input(t["job"])
+            level = st.selectbox(t["level"], list(LEVELS[language]), format_func=LEVELS[language].get)
+            if st.form_submit_button(t["register"]):
+                payload = {
+                    "name": name, "username": username, "password": password,
+                    "target_job": job, "level": level, "language": language,
+                }
+                response = call_api("POST", "/auth/register", t, json=payload)
+                if response is not None and response.status_code == 201:
+                    start_session(response.json(), t)
+                elif response is not None:
+                    show_error(response)
+
+
+# --- Page « S'entraîner » : CV → analyse → entretien → avis ---
+
+def section_cv(t: dict) -> None:
     candidate = st.session_state.candidate
-    st.success(f"{candidate['name']} — {candidate['target_job']}")
-
-# 2. Dépôt du CV
-if "candidate" in st.session_state:
     st.header(t["cv"])
     uploaded = st.file_uploader("PDF", type=["pdf"], label_visibility="collapsed")
     if uploaded is not None and st.button(t["send"]):
         files = {"file": (uploaded.name, uploaded.getvalue(), "application/pdf")}
-        path = f"/candidates/{st.session_state.candidate['id']}/cv"
-        response = call_api("POST", path, t, files=files)
+        response = call_api("POST", f"/candidates/{candidate['id']}/cv", t, files=files)
         if response is not None and response.status_code == 201:
             st.session_state.cv = response.json()
         elif response is not None:
             show_error(response)
 
-# 3. Vérification et correction du texte extrait
-if "cv" in st.session_state:
+    if "cv" not in st.session_state:
+        return
+
     st.header(t["check"])
     cv = st.session_state.cv
     text = st.text_area("CV", cv["extracted_text"], height=400, label_visibility="collapsed")
@@ -255,8 +192,7 @@ if "cv" in st.session_state:
         elif response is not None:
             show_error(response)
 
-# 4. Consentement puis analyse du CV par le LLM
-if "cv" in st.session_state:
+    # Consentement puis analyse du CV par le LLM
     st.header(t["analysis"])
     cv = st.session_state.cv
     st.info(t["consent_info"])
@@ -274,8 +210,32 @@ if "cv" in st.session_state:
     if cv.get("analysis"):
         show_analysis(cv["analysis"], t)
 
-# 5. Entretien : une question à la fois (le backend refuse aussi sans CV analysé)
-if st.session_state.get("cv", {}).get("analysis"):
+
+def section_report(interview: dict, t: dict) -> None:
+    """Avis du recruteur : demandé automatiquement une fois, puis bouton « Réessayer »."""
+    st.header(t["report"])
+    report = st.session_state.get("report")
+    if report is not None:
+        show_report(report, t)
+        return
+    auto = not st.session_state.get("report_attempted")
+    if auto or st.button(t["retry"]):
+        st.session_state.report_attempted = True
+        with st.spinner(t["evaluating"]):
+            response = call_api("POST", f"/interviews/{interview['id']}/report", t, timeout=180)
+        if response is not None and response.status_code == 200:
+            st.session_state.report = response.json()
+            st.rerun()
+        elif response is not None:
+            show_error(response)
+        if auto:
+            st.button(t["retry"])  # relance manuelle après un échec
+
+
+def section_interview(t: dict, language: str) -> None:
+    """Entretien : une question à la fois (le backend refuse aussi sans CV analysé)."""
+    if not st.session_state.get("cv", {}).get("analysis"):
+        return
     st.header(t["interview"])
 
     if "interview" not in st.session_state:
@@ -283,73 +243,227 @@ if st.session_state.get("cv", {}).get("analysis"):
             t["type"], list(INTERVIEW_TYPES[language]), format_func=INTERVIEW_TYPES[language].get
         )
         difficulty = st.selectbox(
-            t["difficulty"], list(DIFFICULTIES[language]), index=1, format_func=DIFFICULTIES[language].get
+            t["difficulty"], list(DIFFICULTIES[language]), index=1,
+            format_func=DIFFICULTIES[language].get,
         )
         if st.button(t["start"]):
             with st.spinner(t["starting"]):
                 response = call_api(
-                    "POST",
-                    f"/candidates/{st.session_state.candidate['id']}/interviews",
-                    t,
-                    json={"interview_type": interview_type, "difficulty": difficulty},
-                    timeout=120,
+                    "POST", f"/candidates/{st.session_state.candidate['id']}/interviews", t,
+                    json={"interview_type": interview_type, "difficulty": difficulty}, timeout=120,
                 )
             if response is not None and response.status_code == 201:
                 st.session_state.interview = response.json()
                 st.rerun()
             elif response is not None:
                 show_error(response)
-    else:
-        interview = st.session_state.interview
-        st.progress(
-            interview["question_number"] / interview["total_questions"],
-            text=t["progress"].format(n=interview["question_number"], total=interview["total_questions"]),
+        return
+
+    interview = st.session_state.interview
+    st.progress(
+        interview["question_number"] / interview["total_questions"],
+        text=t["progress"].format(n=interview["question_number"], total=interview["total_questions"]),
+    )
+    show_messages(interview["messages"])
+
+    if interview["status"] == "en_cours":
+        answer = st.chat_input(t["your_answer"])
+        if answer:
+            with st.spinner(t["thinking"]):
+                response = call_api(
+                    "POST", f"/interviews/{interview['id']}/answers", t,
+                    json={"answer": answer}, timeout=120,
+                )
+            if response is not None and response.status_code == 200:
+                st.session_state.interview = response.json()
+                st.rerun()
+            elif response is not None:
+                show_error(response)
+                st.caption(t["not_sent"])
+                st.code(answer, language=None)
+        return
+
+    st.success(t["finished"])
+    section_report(interview, t)
+    if st.button(t["new_interview"]):
+        for key in ("interview", "report", "report_attempted"):
+            st.session_state.pop(key, None)
+        st.rerun()
+
+
+def page_practice(t: dict, language: str) -> None:
+    candidate = st.session_state.candidate
+    st.header(t["profile"])
+    st.success(
+        f"{candidate['name']} — {candidate['target_job']} — "
+        f"{LEVELS[language].get(candidate['level'], candidate['level'])}"
+    )
+    section_cv(t)
+    section_interview(t, language)
+
+
+# --- Page « Tableau de bord » ---
+
+def progress_charts(rows: list[tuple[int, dict]], t: dict, language: str) -> None:
+    """Un petit graphique par critère (même échelle 0-5), pour éviter les courbes superposées."""
+    data = pd.DataFrame(
+        [{"session": number, "date": format_date(row["created_at"], language), **row["scores"]}
+         for number, row in rows]
+    )
+    columns = st.columns(2)
+    for index, ((key, label), color) in enumerate(zip(t["criteria"].items(), CRITERIA_COLORS)):
+        chart = (
+            alt.Chart(data, title=label, height=200)
+            .mark_line(strokeWidth=2, color=color, point=alt.OverlayMarkDef(size=80, filled=True, color=color))
+            .encode(
+                x=alt.X("session:O", title=t["session"], axis=alt.Axis(labelAngle=0)),
+                y=alt.Y(f"{key}:Q", title=t["score_axis"], scale=alt.Scale(domain=[0, 5]),
+                        axis=alt.Axis(values=[1, 2, 3, 4, 5])),
+                tooltip=[
+                    alt.Tooltip("session:O", title=t["session"]),
+                    alt.Tooltip("date:N", title=t["date"]),
+                    alt.Tooltip(f"{key}:Q", title=label),
+                ],
+            )
         )
-        for message in interview["messages"]:
-            role = "assistant" if message["role"] == "recruiter" else "user"
-            with st.chat_message(role):
-                st.write(message["content"])
+        columns[index % 2].altair_chart(chart, width="stretch")
 
-        if interview["status"] == "en_cours":
-            answer = st.chat_input(t["your_answer"])
-            if answer:
-                with st.spinner(t["thinking"]):
-                    response = call_api(
-                        "POST", f"/interviews/{interview['id']}/answers", t,
-                        json={"answer": answer}, timeout=120,
-                    )
-                if response is not None and response.status_code == 200:
-                    st.session_state.interview = response.json()
-                    st.rerun()
-                elif response is not None:
-                    show_error(response)
-                    st.caption(t["not_sent"])
-                    st.code(answer, language=None)
-        else:
-            st.success(t["finished"])
 
-            # 6. Avis du recruteur : demandé automatiquement une fois, puis bouton « Réessayer »
-            st.header(t["report"])
-            report = st.session_state.get("report")
-            if report is None:
-                auto = not st.session_state.get("report_attempted")
-                if auto or st.button(t["retry"]):
-                    st.session_state.report_attempted = True
-                    with st.spinner(t["evaluating"]):
-                        response = call_api(
-                            "POST", f"/interviews/{interview['id']}/report", t, timeout=180
-                        )
-                    if response is not None and response.status_code == 200:
-                        st.session_state.report = response.json()
-                        st.rerun()
-                    elif response is not None:
-                        show_error(response)
-                    if auto:
-                        st.button(t["retry"])  # relance manuelle après un échec
-            else:
-                show_report(report, t)
+def interview_detail(row: dict, t: dict) -> None:
+    """Rapport (ou conversation) d'un entretien passé, et sa suppression."""
+    interview_id = row["id"]
+    if row["scores"]:
+        response = call_api("GET", f"/interviews/{interview_id}/report", t)
+        if response is not None and response.status_code == 200:
+            show_report(response.json(), t)
+    elif row["status"] == "terminee":
+        st.info(t["no_report"])
+        if st.button(t["retry"], key=f"report_{interview_id}"):
+            with st.spinner(t["evaluating"]):
+                response = call_api("POST", f"/interviews/{interview_id}/report", t, timeout=180)
+            if response is not None and response.status_code == 200:
+                st.rerun()
+            elif response is not None:
+                show_error(response)
 
-            if st.button(t["new_interview"]):
+    with st.expander(t["conversation"]):
+        response = call_api("GET", f"/interviews/{interview_id}", t)
+        if response is not None and response.status_code == 200:
+            show_messages(response.json()["messages"])
+
+    confirm = st.checkbox(t["confirm_delete"], key=f"confirm_interview_{interview_id}")
+    if st.button(t["delete_interview"], disabled=not confirm, key=f"delete_interview_{interview_id}"):
+        response = call_api("DELETE", f"/interviews/{interview_id}", t)
+        if response is not None and response.status_code == 204:
+            if st.session_state.get("interview", {}).get("id") == interview_id:
                 for key in ("interview", "report", "report_attempted"):
                     st.session_state.pop(key, None)
+            st.success(t["deleted"])
+            st.rerun()
+
+
+def section_cvs(t: dict, language: str) -> None:
+    st.subheader(t["my_cvs"])
+    candidate = st.session_state.candidate
+    response = call_api("GET", f"/candidates/{candidate['id']}/cvs", t)
+    if response is None or response.status_code != 200:
+        return
+    cvs = response.json()
+    if not cvs:
+        st.caption(t["no_cv"])
+    for number, cv in enumerate(reversed(cvs), start=1):
+        state = t["analyzed"] if cv["analysis"] else t["not_analyzed"]
+        st.markdown(t["cv_item"].format(n=number, date=format_date(cv["created_at"], language), state=state))
+        confirm = st.checkbox(t["confirm_delete"], key=f"confirm_cv_{cv['id']}")
+        if st.button(t["delete_cv"], disabled=not confirm, key=f"delete_cv_{cv['id']}"):
+            delete = call_api("DELETE", f"/cvs/{cv['id']}", t)
+            if delete is not None and delete.status_code == 204:
+                if st.session_state.get("cv", {}).get("id") == cv["id"]:
+                    st.session_state.pop("cv", None)
+                st.success(t["deleted"])
                 st.rerun()
+
+
+def page_dashboard(t: dict, language: str) -> None:
+    st.header(t["dashboard"])
+    candidate = st.session_state.candidate
+    response = call_api("GET", f"/candidates/{candidate['id']}/interviews", t)
+    if response is None:
+        return
+    if response.status_code != 200:
+        show_error(response)
+        return
+
+    rows = list(enumerate(response.json(), start=1))  # (numéro d'entretien, ligne)
+    if not rows:
+        st.info(t["no_interviews"])
+    else:
+        st.subheader(t["progression"])
+        scored = [(number, row) for number, row in rows if row["scores"]]
+        if scored:
+            progress_charts(scored, t, language)
+        else:
+            st.info(t["need_report"])
+
+        # Tableau : la même information que les graphiques, lisible sans les couleurs
+        st.subheader(t["history"])
+        table = pd.DataFrame([
+            {
+                "#": number,
+                t["date"]: format_date(row["created_at"], language),
+                t["type"]: INTERVIEW_TYPES[language].get(row["interview_type"], row["interview_type"]),
+                t["difficulty"]: DIFFICULTIES[language].get(row["difficulty"], row["difficulty"]),
+                t["status"]: t["statuses"].get(row["status"], row["status"]),
+                t["average"]: row["average"],
+                **{label: (row["scores"] or {}).get(key) for key, label in t["criteria"].items()},
+            }
+            for number, row in rows
+        ])
+        st.dataframe(table, hide_index=True, width="stretch")
+
+        labels = {
+            row["id"]: f"{t['session']} {number} — {format_date(row['created_at'], language)} — "
+            f"{INTERVIEW_TYPES[language].get(row['interview_type'], row['interview_type'])}"
+            + (f" — {row['average']}/5" if row["average"] is not None else "")
+            for number, row in rows
+        }
+        by_id = {row["id"]: row for _, row in rows}
+        selected = st.selectbox(t["open"], list(reversed(list(by_id))), format_func=labels.get)
+        interview_detail(by_id[selected], t)
+
+    section_cvs(t, language)
+
+
+# --- Mise en page générale ---
+
+if "pending_language" in st.session_state:  # langue du profil, après connexion
+    st.session_state.language = st.session_state.pop("pending_language")
+st.session_state.setdefault("language", "fr")
+language = st.sidebar.radio("Langue / Language", ["fr", "en"], format_func=str.upper, key="language")
+t = TEXTS[language]
+st.title(t["title"])
+
+if "token" not in st.session_state:
+    page_login(t, language)
+else:
+    candidate = st.session_state.candidate
+    # Changer la langue dans la barre latérale met aussi à jour le profil (backend)
+    if candidate["language"] != language:
+        response = call_api("PATCH", f"/candidates/{candidate['id']}", t, json={"language": language})
+        if response is not None and response.status_code == 200:
+            st.session_state.candidate = response.json()
+
+    st.sidebar.caption(t["logged_as"].format(name=st.session_state.candidate["name"]))
+    page = st.sidebar.radio(
+        t["nav"], ["practice", "dashboard"],
+        format_func=lambda key: t["nav_practice"] if key == "practice" else t["nav_dashboard"],
+    )
+    if st.sidebar.button(t["logout"]):
+        call_api("POST", "/auth/logout", t)
+        reset_session()
+        st.rerun()
+
+    if page == "practice":
+        page_practice(t, language)
+    else:
+        page_dashboard(t, language)
