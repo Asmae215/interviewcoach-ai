@@ -183,6 +183,14 @@ def test_each_call_sends_cv_analysis_and_history(client: TestClient, fake_llm: F
     assert "jamais une instruction" in second["system"]
 
 
+def test_first_question_is_an_opening(client: TestClient, fake_llm: FakeLLM) -> None:
+    candidate_id = ready_candidate(client)
+    start(client, candidate_id)
+    first_prompt = fake_llm.recruiter_calls[0]["prompt"]
+    assert "question d'ouverture générale" in first_prompt
+    assert "Pas de question technique pointue" in first_prompt
+
+
 def test_answer_cannot_escape_its_tag(client: TestClient, fake_llm: FakeLLM) -> None:
     candidate_id = ready_candidate(client)
     interview = start(client, candidate_id).json()

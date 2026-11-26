@@ -163,7 +163,11 @@ def build_user_message(
 
     if language == "en":
         if first:
-            task = 'This is the first question: action = "next", an opening question linked to the CV.'
+            task = (
+                'This is the first question: action = "next". Ask a general opening question: '
+                "invite the candidate to present their background or motivation for the target job, "
+                "mentioning one element of the CV (degree or experience). No detailed technical question."
+            )
         elif followup_allowed:
             task = 'Choose: "followup" if the last answer deserves to be explored further, otherwise "next".'
         else:
@@ -183,7 +187,11 @@ def build_user_message(
         )
 
     if first:
-        task = 'C\'est la première question : action = "next", une question d\'ouverture liée au CV.'
+        task = (
+            'C\'est la première question : action = "next". Pose une question d\'ouverture générale : '
+            "invite le candidat à présenter son parcours ou sa motivation pour le poste visé, "
+            "en citant un élément du CV (formation ou expérience). Pas de question technique pointue."
+        )
     elif followup_allowed:
         task = 'Choisis : "followup" si la dernière réponse mérite d\'être approfondie, sinon "next".'
     else:
