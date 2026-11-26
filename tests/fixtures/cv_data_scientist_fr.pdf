@@ -1,0 +1,63 @@
+%PDF-1.4
+%âãÏÓ
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Length 1234 >>
+stream
+BT
+50 800 Td
+15 TL
+/F2 12 Tf (Yasmine Alaoui — Data Scientist junior) Tj T*
+/F1 10 Tf (Casablanca • yasmine.alaoui@exemple.test) Tj T*
+/F1 10 Tf () Tj T*
+/F2 12 Tf (Formation) Tj T*
+/F1 10 Tf (2026 : Master Intelligence Artificielle et Science des Données, EMSI) Tj T*
+/F1 10 Tf (2024 : Licence Mathématiques appliquées, Université Hassan II) Tj T*
+/F1 10 Tf () Tj T*
+/F2 12 Tf (Expériences) Tj T*
+/F1 10 Tf (2026 \(6 mois\) : Stagiaire Data Scientist chez BankData \(fictif\)) Tj T*
+/F1 10 Tf (• Modèle de détection de fraude avec XGBoost \(rappel +12 %\)) Tj T*
+/F1 10 Tf (• Tableaux de bord Power BI pour l'équipe risques) Tj T*
+/F1 10 Tf (2025 \(2 mois\) : Stage analyste de données chez RetailPlus \(fictif\)) Tj T*
+/F1 10 Tf (• Nettoyage de données de ventes avec Pandas) Tj T*
+/F1 10 Tf () Tj T*
+/F2 12 Tf (Compétences) Tj T*
+/F1 10 Tf (Python, Pandas, Scikit-learn, XGBoost, SQL, Power BI, Git) Tj T*
+/F1 10 Tf () Tj T*
+/F2 12 Tf (Projets) Tj T*
+/F1 10 Tf (Classification de tweets en darija avec un modèle BERT) Tj T*
+/F1 10 Tf (Prévision de la demande d'électricité \(séries temporelles, Prophet\)) Tj T*
+/F1 10 Tf () Tj T*
+/F2 12 Tf (Langues) Tj T*
+/F1 10 Tf (Français \(courant\), Anglais \(B2\), Arabe \(natif\)) Tj T*
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000000354 00000 n 
+0000000456 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+1742
+%%EOF

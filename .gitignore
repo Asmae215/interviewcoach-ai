@@ -22,7 +22,8 @@ __pycache__/
 # Paramètres locaux de Claude Code
 .claude/
 
-# Fichiers personnels (vrais CV, etc.) — les PDF de docs/ sont autorisés
+# Fichiers personnels (vrais CV, etc.) — seuls les PDF du cours et les CV fictifs sont autorisés
 *.pdf
 !docs/*.pdf
+!tests/fixtures/*.pdf
 histories/
