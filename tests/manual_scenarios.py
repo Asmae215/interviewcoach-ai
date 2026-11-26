@@ -13,6 +13,7 @@ Le script :
 
 import csv
 import json
+import logging
 import os
 import re
 import statistics
@@ -72,6 +73,20 @@ ANSWERS = {
     ],
 }
 
+# Mots trop courants pour prouver qu'une question cite le CV (déjà sans accents)
+GENERIC_WORDS = {
+    "application", "applications", "projet", "projets", "project", "projects", "stage", "stagiaire",
+    "intern", "internship", "master", "licence", "bachelor", "degree", "science", "sciences",
+    "donnees", "intelligence", "artificielle", "artificial", "gestion", "management", "modele",
+    "model", "models", "classification", "prevision", "forecast", "analyse", "analysis", "analyste",
+    "analyst", "developpeur", "developer", "development", "developpement", "ingenieur", "engineer",
+    "engineering", "cycle", "formation", "universite", "university", "school", "ecole", "business",
+    "marketing", "digital", "assistant", "junior", "senior", "systeme", "system", "systems",
+    "fictif", "fictional", "record", "plannings", "student", "etudiant", "informatique", "computer",
+    "mathematiques", "appliquees", "demande", "network", "networks", "reseaux", "services",
+    "service", "cloud", "avec", "pour", "votre", "their",
+}
+
 FR_WORDS = {"vous", "votre", "vos", "le", "la", "les", "des", "est", "pour", "avec", "comment", "quel", "quelle", "dans", "une"}
 EN_WORDS = {"you", "your", "the", "what", "how", "with", "which", "is", "for", "did", "would", "can", "a", "an"}
 
@@ -79,6 +94,8 @@ RESULTS_FILE = ROOT / "tests" / "scenarios" / "derniers_resultats.json"
 
 # Tous les temps de génération (s), par type : question, analyse, avis
 durations: dict[str, list[float]] = {"question": [], "analyse": [], "avis": []}
+# Pour chaque génération : y a-t-il eu un incident LLM (quota, panne, passage au secours) ?
+incident_flags: dict[str, list[bool]] = {"question": [], "analyse": [], "avis": []}
 TIME_LABELS = {
     "question": "Questions du recruteur",
     "analyse": "Analyse du CV",
@@ -86,11 +103,28 @@ TIME_LABELS = {
 }
 
 
+class IncidentCounter(logging.Handler):
+    """Compte les avertissements de services/llm.py (réessai, fournisseur indisponible)."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.count += 1
+
+
+incidents = IncidentCounter()
+logging.getLogger("interviewcoach.llm").addHandler(incidents)
+
+
 def timed(kind: str, function, *args):
+    before = incidents.count
     start = time.perf_counter()
     result = function(*args)
     duration = time.perf_counter() - start
     durations[kind].append(duration)
+    incident_flags[kind].append(incidents.count > before)
     return result, duration
 
 
@@ -121,6 +155,16 @@ def cv_terms(analysis: dict) -> set[str]:
             part = normalize(part).strip(" .:")
             if len(part) >= 3:
                 terms.add(part)
+
+    # Mots distinctifs des projets, entreprises et écoles : « votre Bot Discord », ou un nom
+    # de projet traduit (« tweets in Moroccan Darija ») restent reconnus
+    names = [project.get("name", "") for project in analysis.get("projects", [])]
+    names += [exp.get("organization", "") for exp in analysis.get("experiences", [])]
+    names += [edu.get("school", "") for edu in analysis.get("education", [])]
+    for name in names:
+        for word in re.findall(r"[a-z0-9]+", normalize(name)):
+            if len(word) >= 5 and word not in GENERIC_WORDS:
+                terms.add(word)
     return terms
 
 
@@ -302,8 +346,8 @@ def write_report(pytest_line: str, scenarios: list[dict], judgement: list[dict])
         "Objectif du cahier des charges : moins de 10 s pour une question ou une réponse, hors incident "
         "réseau ou indisponibilité du modèle.",
         "",
-        "| Type | Générations | Moyenne | Médiane | 90 % sous | Maximum | Sous 10 s |",
-        "|---|---|---|---|---|---|---|",
+        "| Type | Générations | Moyenne | Médiane | 90 % sous | Maximum | Sous 10 s | Avec incident LLM |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for kind, values in durations.items():
         if not values:
@@ -311,16 +355,18 @@ def write_report(pytest_line: str, scenarios: list[dict], judgement: list[dict])
         ordered = sorted(values)
         p90 = ordered[max(0, int(len(ordered) * 0.9) - 1)]
         under_10 = sum(v < 10 for v in values)
+        with_incident = sum(incident_flags.get(kind, []))
         lines.append(
             f"| {TIME_LABELS[kind]} | {len(values)} | {statistics.mean(values):.1f} s "
             f"| {statistics.median(values):.1f} s | {p90:.1f} s | {max(values):.1f} s "
-            f"| {under_10}/{len(values)} |"
+            f"| {under_10}/{len(values)} | {with_incident} |"
         )
     lines += [
         "",
-        "Les temps incluent les réessais automatiques (limite de quota gratuit, JSON invalide) et le passage "
-        "au fournisseur de secours. Ce test enchaîne une soixantaine d'appels en quelques minutes, plus vite "
-        "qu'un vrai candidat : les limites du quota gratuit y sont plus souvent atteintes.",
+        "Un « incident LLM » est un refus de quota gratuit (429), une panne passagère du serveur ou le passage "
+        "au fournisseur de secours, journalisé par `services/llm.py`. Le cahier des charges exclut ces cas de "
+        "l'objectif des 10 s (« hors incident réseau ou indisponibilité du modèle »). Ce test enchaîne une "
+        "soixantaine d'appels en quelques minutes, bien plus vite qu'un vrai candidat.",
     ]
 
     ok_scenarios = [s for s in scenarios if "error" not in s]
@@ -337,8 +383,15 @@ def write_report(pytest_line: str, scenarios: list[dict], judgement: list[dict])
     if len(pairs) >= 2:
         lines.append(f"- {mark(mae <= 1)} Évaluation proche du jugement humain (écart moyen ≤ 1 point)")
     if durations["question"]:
-        worst = max(durations["question"])
-        lines.append(f"- {mark(worst < 10)} Questions du recruteur sous 10 s (maximum {worst:.1f} s)")
+        flags = incident_flags.get("question") or [False] * len(durations["question"])
+        normal = [v for v, flag in zip(durations["question"], flags) if not flag]
+        slow_with_incident = sum(v >= 10 for v, flag in zip(durations["question"], flags) if flag)
+        worst = max(normal) if normal else 0.0
+        note = f" ; {slow_with_incident} au-delà avec incident LLM (hors objectif)" if slow_with_incident else ""
+        lines.append(
+            f"- {mark(worst < 10)} Questions du recruteur sous 10 s hors incident LLM "
+            f"(maximum {worst:.1f} s{note})"
+        )
     long_ones = durations["analyse"] + durations["avis"]
     if long_ones:
         slow = sum(v >= 10 for v in long_ones)
@@ -375,7 +428,7 @@ def main() -> None:
     # Résultats bruts : permettent de recalculer le rapport sans rappeler le LLM
     RESULTS_FILE.write_text(
         json.dumps({"pytest": pytest_line, "scenarios": scenarios, "judgement": judgement,
-                    "durations": durations}, ensure_ascii=False, indent=1),
+                    "durations": durations, "incidents": incident_flags}, ensure_ascii=False, indent=1),
         encoding="utf-8",
     )
     write_report(pytest_line, scenarios, judgement)
@@ -386,6 +439,8 @@ def rebuild() -> None:
     """Réécrit le rapport à partir des derniers résultats bruts (aucun appel au LLM)."""
     data = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
     durations.update(data["durations"])
+    # Résultats d'avant le comptage des incidents : inconnus, donc comptés comme sans incident
+    incident_flags.update(data.get("incidents", {k: [False] * len(v) for k, v in data["durations"].items()}))
     for scenario in data["scenarios"]:
         if "error" not in scenario:
             terms = cv_terms(scenario["analysis"])
