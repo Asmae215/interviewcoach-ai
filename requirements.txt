@@ -1,11 +1,15 @@
-﻿fastapi
-uvicorn
-python-multipart
-streamlit
-sqlalchemy
-pypdf
-python-dotenv
-requests
-pydantic
-pytest
-httpx
+﻿# Versions testées (étape 10) : le conteneur de production installe exactement celles-ci
+fastapi==0.164.0
+uvicorn==0.54.0
+python-multipart==0.0.34
+streamlit==1.67.0
+altair==6.3.0
+pandas==3.1.1
+sqlalchemy==2.1.9
+psycopg[binary]==3.3.9
+pypdf==7.1.1
+python-dotenv==1.2.4
+requests==2.34.2
+pydantic==2.14.3
+pytest==9.2.0
+httpx==0.29.0

@@ -1,14 +1,37 @@
-﻿from pathlib import Path
+﻿import os
+from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+load_dotenv()
+
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "interviewcoach.db"
 
-engine = create_engine(
-    f"sqlite:///{DB_PATH}",
-    connect_args={"check_same_thread": False},
-)
+
+def database_url() -> str:
+    """SQLite en local ; en production, la base PostgreSQL (Neon) donnée par DATABASE_URL.
+
+    Neon fournit une adresse « postgresql://… » : on précise le pilote psycopg (version 3).
+    """
+    url = os.getenv("DATABASE_URL", "").strip()
+    if not url:
+        return f"sqlite:///{DB_PATH}"
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = database_url()
+
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    # pool_pre_ping : Neon met la base en veille, une connexion ancienne peut être fermée
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 
 
