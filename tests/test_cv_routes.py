@@ -3,17 +3,16 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from backend.models import CV
+from tests.helpers import register
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 def create_candidate(client: TestClient, language: str = "fr") -> int:
-    response = client.post(
-        "/candidates",
-        json={"name": "Test", "target_job": "Data Scientist", "level": "junior", "language": language},
-    )
-    assert response.status_code == 201
-    return response.json()["id"]
+    return register(client, language=language)
 
 
 def upload(client: TestClient, candidate_id: int, name: str, data: bytes | None = None):
@@ -41,6 +40,7 @@ def test_upload_valid_cv(client: TestClient, upload_dir: Path) -> None:
 
 
 def test_upload_unknown_candidate(client: TestClient) -> None:
+    create_candidate(client)
     assert upload(client, 999, "cv_devops_en.pdf").status_code == 404
 
 
@@ -102,12 +102,14 @@ def test_delete_cv_removes_file(client: TestClient, upload_dir: Path) -> None:
     assert not any(upload_dir.iterdir())
 
 
-def test_delete_candidate_removes_cv_files(client: TestClient, upload_dir: Path) -> None:
+def test_delete_candidate_removes_cv_files(client: TestClient, upload_dir: Path, db: Session) -> None:
     candidate_id = create_candidate(client)
-    cv_id = upload(client, candidate_id, "cv_devops_en.pdf").json()["id"]
+    upload(client, candidate_id, "cv_devops_en.pdf")
     upload(client, candidate_id, "cv_marketing_en.pdf")
     assert len(list(upload_dir.iterdir())) == 2
 
     assert client.delete(f"/candidates/{candidate_id}").status_code == 204
-    assert client.get(f"/cvs/{cv_id}").status_code == 404
-    assert not any(upload_dir.iterdir())
+    assert db.query(CV).count() == 0  # lignes supprimées en base
+    assert not any(upload_dir.iterdir())  # fichiers PDF supprimés
+    # Le compte n'existe plus : son jeton ne fonctionne plus
+    assert client.get(f"/candidates/{candidate_id}").status_code == 401

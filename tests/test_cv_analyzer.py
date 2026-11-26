@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from backend.services import llm_utils
 from backend.services.cv_analyzer import CVAnalysisError, analyze_cv, build_user_message
 from backend.services.llm import LLMError
+from tests.helpers import register
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -112,13 +113,10 @@ def test_cv_cannot_close_the_data_tag() -> None:
 # --- Route POST /cvs/{id}/analyze ---
 
 def create_cv(client: TestClient, name: str = "cv_data_scientist_fr.pdf") -> int:
-    candidate = client.post(
-        "/candidates",
-        json={"name": "Test", "target_job": "Data Scientist", "level": "junior", "language": "fr"},
-    ).json()
+    candidate_id = register(client)
     content = (FIXTURES_DIR / name).read_bytes()
     response = client.post(
-        f"/candidates/{candidate['id']}/cv", files={"file": (name, content, "application/pdf")}
+        f"/candidates/{candidate_id}/cv", files={"file": (name, content, "application/pdf")}
     )
     return response.json()["id"]
 

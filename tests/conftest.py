@@ -11,7 +11,13 @@ from sqlalchemy.pool import StaticPool
 
 from backend.database import Base, get_db
 from backend.main import app
-from backend.services import cv_storage
+from backend.services import cv_storage, security
+
+
+@pytest.fixture(autouse=True)
+def fast_password_hash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hash rapide pendant les tests (600 000 itérations ralentiraient chaque inscription)."""
+    monkeypatch.setattr(security, "ITERATIONS", 1_000)
 
 
 @pytest.fixture
@@ -23,23 +29,36 @@ def upload_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def client(upload_dir: Path) -> Iterator[TestClient]:
-    """Client de l'API branché sur une base vide, recréée à chaque test."""
+def test_sessionmaker() -> Iterator[sessionmaker]:
+    """Base SQLite vide en mémoire, recréée à chaque test."""
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(engine)
-    TestSession = sessionmaker(bind=engine, autoflush=False)
+    yield sessionmaker(bind=engine, autoflush=False)
+    engine.dispose()
+
+
+@pytest.fixture
+def db(test_sessionmaker: sessionmaker) -> Iterator[Session]:
+    """Accès direct à la base de test, pour vérifier ce qui est réellement stocké."""
+    session = test_sessionmaker()
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def client(upload_dir: Path, test_sessionmaker: sessionmaker) -> Iterator[TestClient]:
+    """Client de l'API branché sur la base de test."""
 
     def override_get_db() -> Iterator[Session]:
-        db = TestSession()
+        session = test_sessionmaker()
         try:
-            yield db
+            yield session
         finally:
-            db.close()
+            session.close()
 
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
-    engine.dispose()

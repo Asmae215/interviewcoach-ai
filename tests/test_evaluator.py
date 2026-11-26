@@ -8,7 +8,11 @@ from fastapi.testclient import TestClient
 
 from backend.services import llm_utils
 from backend.services.evaluator import average_score, build_user_message, exchanges_from
+from sqlalchemy.orm import Session
+
+from backend.models import Report
 from backend.services.llm import LLMError
+from tests.helpers import register
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -62,17 +66,14 @@ def use_fake(monkeypatch: pytest.MonkeyPatch, *evaluations: str | Exception) -> 
 
 def run_interview(client: TestClient, finish: bool = True, language: str = "fr") -> int:
     """Crée un candidat avec un CV analysé et joue un entretien débutant (6 questions)."""
-    candidate = client.post(
-        "/candidates",
-        json={"name": "Test", "target_job": "Data Scientist", "level": "junior", "language": language},
-    ).json()
+    candidate_id = register(client, language=language)
     content = (FIXTURES_DIR / "cv_data_scientist_fr.pdf").read_bytes()
     cv = client.post(
-        f"/candidates/{candidate['id']}/cv", files={"file": ("cv.pdf", content, "application/pdf")}
+        f"/candidates/{candidate_id}/cv", files={"file": ("cv.pdf", content, "application/pdf")}
     ).json()
     client.post(f"/cvs/{cv['id']}/analyze", json={"consent": True})
     interview = client.post(
-        f"/candidates/{candidate['id']}/interviews",
+        f"/candidates/{candidate_id}/interviews",
         json={"interview_type": "technique", "difficulty": "debutant"},
     ).json()
     for number in range(1, 7 if finish else 3):
@@ -193,10 +194,23 @@ def test_english_report(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     assert "Exchange 1" in fake.evaluator_calls[0]["prompt"]
 
 
-def test_delete_candidate_removes_report(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_delete_candidate_removes_report(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, db: Session
+) -> None:
     use_fake(monkeypatch, json.dumps(evaluation()))
     interview_id = run_interview(client)
     client.post(f"/interviews/{interview_id}/report")
+    assert db.query(Report).count() == 1
     candidate_id = client.get(f"/interviews/{interview_id}").json()["candidate_id"]
-    client.delete(f"/candidates/{candidate_id}")
-    assert client.get(f"/interviews/{interview_id}/report").status_code == 404
+    assert client.delete(f"/candidates/{candidate_id}").status_code == 204
+    assert db.query(Report).count() == 0
+
+
+def test_delete_interview_removes_report(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, db: Session
+) -> None:
+    use_fake(monkeypatch, json.dumps(evaluation()))
+    interview_id = run_interview(client)
+    client.post(f"/interviews/{interview_id}/report")
+    assert client.delete(f"/interviews/{interview_id}").status_code == 204
+    assert db.query(Report).count() == 0

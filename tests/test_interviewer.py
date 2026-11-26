@@ -8,7 +8,11 @@ from fastapi.testclient import TestClient
 
 from backend.services import interviewer, llm_utils
 from backend.services.interviewer import RecruiterTurn, build_state, detect_domain, next_question
+from sqlalchemy.orm import Session
+
+from backend.models import Interview, Message
 from backend.services.llm import LLMError
+from tests.helpers import register
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -51,11 +55,7 @@ def fake_llm(monkeypatch: pytest.MonkeyPatch) -> FakeLLM:
 
 
 def new_candidate(client: TestClient, language: str = "fr") -> int:
-    response = client.post(
-        "/candidates",
-        json={"name": "Test", "target_job": "Data Scientist", "level": "junior", "language": language},
-    )
-    return response.json()["id"]
+    return register(client, language=language)
 
 
 def upload_cv(client: TestClient, candidate_id: int) -> int:
@@ -224,11 +224,20 @@ def test_llm_error_keeps_answer_unsaved(client: TestClient, monkeypatch: pytest.
     assert len(client.get(f"/interviews/{interview['id']}").json()["messages"]) == 1
 
 
-def test_delete_candidate_removes_interviews(client: TestClient, fake_llm: FakeLLM) -> None:
+def test_delete_candidate_removes_interviews(client: TestClient, fake_llm: FakeLLM, db: Session) -> None:
+    candidate_id = ready_candidate(client)
+    start(client, candidate_id)
+    assert client.delete(f"/candidates/{candidate_id}").status_code == 204
+    assert db.query(Interview).count() == 0
+    assert db.query(Message).count() == 0
+
+
+def test_delete_interview(client: TestClient, fake_llm: FakeLLM, db: Session) -> None:
     candidate_id = ready_candidate(client)
     interview = start(client, candidate_id).json()
-    client.delete(f"/candidates/{candidate_id}")
+    assert client.delete(f"/interviews/{interview['id']}").status_code == 204
     assert client.get(f"/interviews/{interview['id']}").status_code == 404
+    assert db.query(Message).count() == 0
 
 
 def test_closing_message_in_english() -> None:
