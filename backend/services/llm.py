@@ -1,4 +1,5 @@
-﻿import os
+﻿import logging
+import os
 import time
 
 import requests
@@ -6,7 +7,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-RETRY_CODES = {429, 500, 502, 503}
+# Les incidents (réessai, passage au fournisseur de secours) sont journalisés ici
+logger = logging.getLogger("interviewcoach.llm")
+
+# Pannes passagères du serveur : on réessaie le même fournisseur après une courte attente.
+# 429 (quota gratuit atteint) n'en fait pas partie : attendre ne sert à rien,
+# on passe tout de suite à l'autre fournisseur (réponse plus rapide pour le candidat).
+RETRY_CODES = {500, 502, 503}
 MAX_ATTEMPTS = 3
 
 
@@ -25,7 +32,9 @@ def _post_with_retry(url: str, headers: dict, body: dict) -> dict:
             return response.json()
         last_error = f"Erreur {response.status_code} : {response.text[:300]}"
         if response.status_code in RETRY_CODES and attempt < MAX_ATTEMPTS:
-            time.sleep(2 ** attempt)
+            wait = 2 ** attempt
+            logger.warning("Erreur %s, nouvel essai dans %s s", response.status_code, wait)
+            time.sleep(wait)
             continue
         break
     raise LLMError(last_error)
@@ -115,5 +124,6 @@ def ask_llm(
         try:
             return PROVIDERS[name](prompt, system, temperature, max_tokens, json_mode).strip()
         except LLMError as error:
+            logger.warning("%s indisponible : %s", name, str(error)[:120])
             errors.append(f"{name} : {error}")
     raise LLMError(" | ".join(errors))
