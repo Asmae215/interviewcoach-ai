@@ -8,7 +8,7 @@
 | 1 | Structure du projet et environnement Python | – | ✅ fait | — | 6f8b065. |
 | 2 | Choix et test du LLM gratuit | – | ✅ fait | — | Gemini (52b83c9), puis client unique Gemini/Groq avec secours (2f23f05). |
 | 3 | Base de données et profil candidat | F1 | ✅ fait | — | ac0f213. Branche de Lina fusionnée (18dbb27) : `backend/ai/` à rebrancher sur `services/llm.py`. |
-| 4 | Import du CV PDF et extraction du texte | F1, F2 | à faire | | |
+| 4 | Import du CV PDF et extraction du texte | F1, F2 | 🧪 en validation | 2026-11-26 | Route `POST /candidates/{id}/cv` (PDF, 5 Mo, nom UUID), correction `PUT /cvs/{id}/text`, suppression fichier + candidat. 4 CV fictifs + scanné + invalide dans `tests/fixtures/`. 19 tests pytest OK. Page Streamlit dépôt/correction. |
 | 5 | Analyse du CV par le LLM | F2 | à faire | | |
 | 6 | Entretien avec le recruteur IA | F4 | à faire | | |
 | 7 | Avis du recruteur et améliorations | F5 | à faire | | |
