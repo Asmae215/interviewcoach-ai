@@ -1,18 +1,28 @@
-﻿.venv/
-.env
-*.db
-__pycache__/
-data/uploads/*
-!data/uploads/.gitkeep
-# Environnement virtuel
+﻿# Environnement virtuel
+.venv/
 venv/
 
-# Secrets et cl├⌐s API
+# Secrets et clés API
+.env
 .env.*
 !.env.example
+
+# Base de données
+*.db
+
+# CV déposés (jamais sur Git)
+data/uploads/*
+!data/uploads/.gitkeep
+
 # Fichiers temporaires Python
+__pycache__/
 *.pyc
 .pytest_cache/
-# Fichiers personnels
+
+# Paramètres locaux de Claude Code
+.claude/
+
+# Fichiers personnels (vrais CV, etc.) — les PDF de docs/ sont autorisés
 *.pdf
+!docs/*.pdf
 histories/
