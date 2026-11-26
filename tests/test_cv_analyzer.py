@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.services import cv_analyzer
+from backend.services import llm_utils
 from backend.services.cv_analyzer import CVAnalysisError, analyze_cv, build_user_message
 from backend.services.llm import LLMError
 
@@ -52,7 +52,7 @@ class FakeLLM:
 
 def use_fake_llm(monkeypatch: pytest.MonkeyPatch, *answers: str | Exception) -> FakeLLM:
     fake = FakeLLM(*answers)
-    monkeypatch.setattr(cv_analyzer, "ask_llm", fake)
+    monkeypatch.setattr(llm_utils, "ask_llm", fake)
     return fake
 
 
