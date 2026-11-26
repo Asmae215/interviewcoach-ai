@@ -18,6 +18,9 @@ class Candidate(Base):
     target_job: Mapped[str] = mapped_column(String(150))
     level: Mapped[str] = mapped_column(String(30))
     language: Mapped[str] = mapped_column(String(2), default="fr")
+    # Connexion (étape 8) : identifiant unique et mot de passe hashé (jamais en clair)
+    username: Mapped[str | None] = mapped_column(String(50), unique=True, default=None)
+    password_hash: Mapped[str | None] = mapped_column(String(200), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     cvs: Mapped[list["CV"]] = relationship(
@@ -26,6 +29,23 @@ class Candidate(Base):
     interviews: Mapped[list["Interview"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list["AuthSession"]] = relationship(
+        back_populates="candidate", cascade="all, delete-orphan"
+    )
+
+
+class AuthSession(Base):
+    """Session de connexion : empreinte du jeton remis au candidat."""
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    candidate_id: Mapped[int] = mapped_column(ForeignKey("candidates.id"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+    candidate: Mapped["Candidate"] = relationship(back_populates="sessions")
 
 
 class CV(Base):

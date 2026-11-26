@@ -26,11 +26,42 @@ class CandidateOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    username: str | None = None
     name: str
     target_job: str
     level: str
     language: str
     created_at: datetime
+
+
+# --- Connexion (étape 8) ---
+
+# Identifiant : lettres, chiffres, point, tiret, tiret bas ; enregistré en minuscules
+# (le format est vérifié avant la mise en minuscules, d'où A-Z dans le motif)
+Username = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, to_lower=True, min_length=3, max_length=50,
+        pattern=r"^[A-Za-z0-9._-]+$",
+    ),
+]
+Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
+
+
+class RegisterIn(CandidateCreate):
+    username: Username
+    password: Password
+
+
+class LoginIn(BaseModel):
+    username: Username
+    password: Password
+    language: Language = "fr"  # langue des messages d'erreur
+
+
+class TokenOut(BaseModel):
+    token: str
+    candidate: CandidateOut
 
 
 # Texte du CV corrigé par le candidat (espaces retirés au début et à la fin)
@@ -162,6 +193,23 @@ class ReportOut(BaseModel):
     overall_feedback: str
     disclaimer: str  # « scores pédagogiques, pas une décision de recrutement »
     created_at: datetime
+
+
+# --- Tableau de bord (étape 8) ---
+
+class InterviewSummary(BaseModel):
+    """Une ligne du tableau de bord : un entretien et ses notes (si l'avis existe)."""
+
+    id: int
+    interview_type: str
+    difficulty: str
+    language: str
+    status: str
+    question_number: int
+    total_questions: int
+    created_at: datetime
+    scores: dict[str, int] | None = None  # notes par critère
+    average: float | None = None
 
 
 class CVOut(BaseModel):
