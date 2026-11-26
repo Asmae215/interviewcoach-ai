@@ -1,4 +1,4 @@
-"""Routes de l'entretien : démarrer, répondre, consulter (étape 6)."""
+"""Routes de l'entretien : démarrer, répondre, consulter, supprimer (étapes 6 et 8)."""
 
 import json
 
@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Candidate, Interview, Message
-from backend.routers.candidates import get_candidate_or_404
+from backend.routers.auth import get_current_candidate
+from backend.routers.candidates import get_own_candidate
 from backend.schemas import AnswerIn, InterviewCreate, InterviewOut, MessageOut
 from backend.services import interviewer
 from backend.services.llm import LLMError
@@ -36,9 +37,10 @@ def interview_error(status_code: int, code: str, language: str) -> HTTPException
     )
 
 
-def get_interview_or_404(db: Session, interview_id: int) -> Interview:
+def get_interview_or_404(db: Session, interview_id: int, current: Candidate) -> Interview:
+    """Entretien du candidat connecté ; l'entretien d'un autre candidat donne 404."""
     interview = db.get(Interview, interview_id)
-    if interview is None:
+    if interview is None or interview.candidate_id != current.id:
         raise HTTPException(status_code=404, detail="Entretien introuvable")
     return interview
 
@@ -80,8 +82,13 @@ def to_out(interview: Interview) -> InterviewOut:
 
 
 @router.post("/candidates/{candidate_id}/interviews", response_model=InterviewOut, status_code=201)
-def start_interview(candidate_id: int, data: InterviewCreate, db: Session = Depends(get_db)):
-    candidate = get_candidate_or_404(db, candidate_id)
+def start_interview(
+    candidate_id: int,
+    data: InterviewCreate,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
+    candidate = get_own_candidate(candidate_id, current)
     language = candidate.language
 
     # CV bloquant, vérifié côté serveur : pas d'entretien sans CV analysé avec succès
@@ -111,8 +118,13 @@ def start_interview(candidate_id: int, data: InterviewCreate, db: Session = Depe
 
 
 @router.post("/interviews/{interview_id}/answers", response_model=InterviewOut)
-def answer_question(interview_id: int, data: AnswerIn, db: Session = Depends(get_db)):
-    interview = get_interview_or_404(db, interview_id)
+def answer_question(
+    interview_id: int,
+    data: AnswerIn,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
+    interview = get_interview_or_404(db, interview_id, current)
     language = interview.language
     if interview.status != "en_cours":
         raise interview_error(409, "interview_finished", language)
@@ -140,5 +152,20 @@ def answer_question(interview_id: int, data: AnswerIn, db: Session = Depends(get
 
 
 @router.get("/interviews/{interview_id}", response_model=InterviewOut)
-def read_interview(interview_id: int, db: Session = Depends(get_db)):
-    return to_out(get_interview_or_404(db, interview_id))
+def read_interview(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
+    return to_out(get_interview_or_404(db, interview_id, current))
+
+
+@router.delete("/interviews/{interview_id}", status_code=204)
+def delete_interview(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
+    """Supprime l'entretien avec ses messages et son rapport (cascade)."""
+    db.delete(get_interview_or_404(db, interview_id, current))
+    db.commit()

@@ -1,11 +1,12 @@
-"""Routes du CV : dépôt du PDF, lecture, correction du texte, suppression (étape 4)."""
+"""Routes du CV : dépôt du PDF, lecture, correction, analyse, suppression (étapes 4, 5 et 8)."""
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import CV
-from backend.routers.candidates import get_candidate_or_404
+from backend.models import CV, Candidate
+from backend.routers.auth import get_current_candidate
+from backend.routers.candidates import get_own_candidate
 from backend.schemas import AnalyzeRequest, CVOut, CVTextUpdate
 from backend.services import cv_analyzer
 from backend.services.cv_parser import CVParseError, error_message, extract_text
@@ -27,9 +28,10 @@ def cv_error(status_code: int, code: str, language: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
-def get_cv_or_404(db: Session, cv_id: int) -> CV:
+def get_cv_or_404(db: Session, cv_id: int, current: Candidate) -> CV:
+    """CV du candidat connecté ; le CV d'un autre candidat donne 404."""
     cv = db.get(CV, cv_id)
-    if cv is None:
+    if cv is None or cv.candidate_id != current.id:
         raise HTTPException(status_code=404, detail="CV introuvable")
     return cv
 
@@ -39,8 +41,9 @@ async def upload_cv(
     candidate_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
 ):
-    candidate = get_candidate_or_404(db, candidate_id)
+    candidate = get_own_candidate(candidate_id, current)
     language = candidate.language
 
     if not (file.filename or "").lower().endswith(".pdf"):
@@ -64,15 +67,29 @@ async def upload_cv(
     return cv
 
 
+@router.get("/candidates/{candidate_id}/cvs", response_model=list[CVOut])
+def list_cvs(candidate_id: int, current: Candidate = Depends(get_current_candidate)):
+    """CV du candidat, du plus récent au plus ancien (tableau de bord)."""
+    candidate = get_own_candidate(candidate_id, current)
+    return sorted(candidate.cvs, key=lambda cv: cv.id, reverse=True)
+
+
 @router.get("/cvs/{cv_id}", response_model=CVOut)
-def read_cv(cv_id: int, db: Session = Depends(get_db)):
-    return get_cv_or_404(db, cv_id)
+def read_cv(
+    cv_id: int, db: Session = Depends(get_db), current: Candidate = Depends(get_current_candidate)
+):
+    return get_cv_or_404(db, cv_id, current)
 
 
 @router.put("/cvs/{cv_id}/text", response_model=CVOut)
-def update_cv_text(cv_id: int, data: CVTextUpdate, db: Session = Depends(get_db)):
+def update_cv_text(
+    cv_id: int,
+    data: CVTextUpdate,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
     """Le candidat corrige le texte extrait ; l'ancienne analyse n'est plus valable."""
-    cv = get_cv_or_404(db, cv_id)
+    cv = get_cv_or_404(db, cv_id, current)
     cv.extracted_text = data.text
     cv.analysis = None
     db.commit()
@@ -81,9 +98,14 @@ def update_cv_text(cv_id: int, data: CVTextUpdate, db: Session = Depends(get_db)
 
 
 @router.post("/cvs/{cv_id}/analyze", response_model=CVOut)
-def analyze_cv(cv_id: int, data: AnalyzeRequest, db: Session = Depends(get_db)):
+def analyze_cv(
+    cv_id: int,
+    data: AnalyzeRequest,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
     """Envoie le texte du CV au LLM (avec l'accord du candidat) et enregistre l'analyse."""
-    cv = get_cv_or_404(db, cv_id)
+    cv = get_cv_or_404(db, cv_id, current)
     candidate = cv.candidate
     language = candidate.language
 
@@ -109,8 +131,10 @@ def analyze_cv(cv_id: int, data: AnalyzeRequest, db: Session = Depends(get_db)):
 
 
 @router.delete("/cvs/{cv_id}", status_code=204)
-def delete_cv(cv_id: int, db: Session = Depends(get_db)):
-    cv = get_cv_or_404(db, cv_id)
+def delete_cv(
+    cv_id: int, db: Session = Depends(get_db), current: Candidate = Depends(get_current_candidate)
+):
+    cv = get_cv_or_404(db, cv_id, current)
     file_name = cv.file_path
     db.delete(cv)
     db.commit()

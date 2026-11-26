@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import Report
+from backend.models import Candidate, Report
+from backend.routers.auth import get_current_candidate
 from backend.routers.interview import get_interview_or_404
 from backend.schemas import ReportOut
 from backend.services import evaluator
@@ -52,9 +53,13 @@ def to_out(report: Report, language: str) -> ReportOut:
 
 
 @router.post("/interviews/{interview_id}/report", response_model=ReportOut)
-def create_report(interview_id: int, db: Session = Depends(get_db)):
+def create_report(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
     """Génère l'avis à la fin de l'entretien (une seule fois : ensuite, renvoie le même)."""
-    interview = get_interview_or_404(db, interview_id)
+    interview = get_interview_or_404(db, interview_id, current)
     language = interview.language
     if interview.report is not None:
         return to_out(interview.report, language)
@@ -87,8 +92,12 @@ def create_report(interview_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/interviews/{interview_id}/report", response_model=ReportOut)
-def read_report(interview_id: int, db: Session = Depends(get_db)):
-    interview = get_interview_or_404(db, interview_id)
+def read_report(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current: Candidate = Depends(get_current_candidate),
+):
+    interview = get_interview_or_404(db, interview_id, current)
     if interview.report is None:
         raise report_error(404, "report_not_found", interview.language)
     return to_out(interview.report, interview.language)
