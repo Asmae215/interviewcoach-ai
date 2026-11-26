@@ -45,8 +45,24 @@ TEXTS = {
         "progress": "Question {n} sur {total}",
         "your_answer": "Ta réponse…",
         "not_sent": "Ta réponse n'a pas été envoyée, tu peux la copier et réessayer :",
-        "finished": "Entretien terminé. L'avis du recruteur arrive à l'étape suivante.",
+        "finished": "Entretien terminé.",
         "new_interview": "Nouvel entretien",
+        "report": "6. Avis du recruteur",
+        "evaluating": "Le recruteur prépare son avis…",
+        "retry": "Réessayer",
+        "average": "Moyenne",
+        "strengths": "Points forts",
+        "improvements": "Axes d'amélioration",
+        "weakest": "Ta réponse la plus faible",
+        "question": "Question",
+        "answer": "Ta réponse",
+        "why": "Pourquoi",
+        "improved": "Proposition de reformulation",
+        "overall": "Avis global",
+        "criteria": {
+            "pertinence": "Pertinence", "clarte": "Clarté",
+            "argumentation": "Argumentation", "connaissances_techniques": "Connaissances techniques",
+        },
     },
     "en": {
         "title": "InterviewCoach AI",
@@ -85,8 +101,24 @@ TEXTS = {
         "progress": "Question {n} of {total}",
         "your_answer": "Your answer…",
         "not_sent": "Your answer was not sent, you can copy it and retry:",
-        "finished": "Interview over. The recruiter's feedback comes in the next step.",
+        "finished": "Interview over.",
         "new_interview": "New interview",
+        "report": "6. Recruiter's feedback",
+        "evaluating": "The recruiter is preparing the feedback…",
+        "retry": "Retry",
+        "average": "Average",
+        "strengths": "Strengths",
+        "improvements": "Areas for improvement",
+        "weakest": "Your weakest answer",
+        "question": "Question",
+        "answer": "Your answer",
+        "why": "Why",
+        "improved": "Suggested rewrite",
+        "overall": "Overall feedback",
+        "criteria": {
+            "pertinence": "Relevance", "clarte": "Clarity",
+            "argumentation": "Reasoning", "connaissances_techniques": "Technical knowledge",
+        },
     },
 }
 LEVELS = {
@@ -143,6 +175,35 @@ def show_analysis(analysis: dict, t: dict) -> None:
     st.markdown(f"**{t['weaknesses']}**")
     for weakness in analysis["weaknesses"]:
         st.markdown(f"- {weakness}")
+
+
+def show_report(report: dict, t: dict) -> None:
+    """Affiche l'avis du recruteur : notes justifiées, conseils, reformulation."""
+    st.warning(report["disclaimer"])
+
+    columns = st.columns(5)
+    columns[0].metric(t["average"], f"{report['average']}/5")
+    for column, (key, label) in zip(columns[1:], t["criteria"].items()):
+        column.metric(label, f"{report['scores'][key]['score']}/5")
+    for key, label in t["criteria"].items():
+        st.markdown(f"**{label}** : {report['scores'][key]['justification']}")
+
+    st.subheader(t["strengths"])
+    for item in report["strengths"]:
+        st.markdown(f"- {item}")
+    st.subheader(t["improvements"])
+    for item in report["improvements"]:
+        st.markdown(f"- {item}")
+
+    weakest = report["weakest_answer"]
+    st.subheader(t["weakest"])
+    st.markdown(f"**{t['question']}** : {weakest['question']}")
+    st.markdown(f"**{t['answer']}** : {weakest['answer']}")
+    st.markdown(f"**{t['why']}** : {weakest['why']}")
+    st.info(f"**{t['improved']}** : {weakest['improved_answer']}")
+
+    st.subheader(t["overall"])
+    st.write(report["overall_feedback"])
 
 
 language = st.sidebar.radio("Langue / Language", ["fr", "en"], format_func=str.upper)
@@ -266,6 +327,29 @@ if st.session_state.get("cv", {}).get("analysis"):
                     st.code(answer, language=None)
         else:
             st.success(t["finished"])
+
+            # 6. Avis du recruteur : demandé automatiquement une fois, puis bouton « Réessayer »
+            st.header(t["report"])
+            report = st.session_state.get("report")
+            if report is None:
+                auto = not st.session_state.get("report_attempted")
+                if auto or st.button(t["retry"]):
+                    st.session_state.report_attempted = True
+                    with st.spinner(t["evaluating"]):
+                        response = call_api(
+                            "POST", f"/interviews/{interview['id']}/report", t, timeout=180
+                        )
+                    if response is not None and response.status_code == 200:
+                        st.session_state.report = response.json()
+                        st.rerun()
+                    elif response is not None:
+                        show_error(response)
+                    if auto:
+                        st.button(t["retry"])  # relance manuelle après un échec
+            else:
+                show_report(report, t)
+
             if st.button(t["new_interview"]):
-                del st.session_state["interview"]
+                for key in ("interview", "report", "report_attempted"):
+                    st.session_state.pop(key, None)
                 st.rerun()
