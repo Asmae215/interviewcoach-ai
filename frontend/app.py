@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from errors import format_validation_errors
 from texts import CRITERIA_COLORS, DIFFICULTIES, INTERVIEW_TYPES, LEVELS, TEXTS
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
@@ -95,8 +96,8 @@ def show_error(response: requests.Response) -> None:
         detail = response.text
     if isinstance(detail, dict):
         detail = detail.get("message", detail)
-    elif isinstance(detail, list):  # erreurs de validation Pydantic
-        detail = " ; ".join(err.get("msg", str(err)) for err in detail)
+    elif isinstance(detail, list):  # erreurs de validation Pydantic, traduites
+        detail = format_validation_errors(detail, st.session_state.get("language", "fr"))
     st.error(str(detail))
 
 
