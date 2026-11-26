@@ -12,6 +12,7 @@ Le script :
 """
 
 import csv
+import json
 import os
 import re
 import statistics
@@ -21,7 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from backend.ai.question_selector import normalize
+from backend.ai.question_selector import contains_term, normalize
 from backend.services import interviewer
 from backend.services.cv_analyzer import analyze_cv
 from backend.services.cv_parser import extract_text
@@ -74,14 +75,22 @@ ANSWERS = {
 FR_WORDS = {"vous", "votre", "vos", "le", "la", "les", "des", "est", "pour", "avec", "comment", "quel", "quelle", "dans", "une"}
 EN_WORDS = {"you", "your", "the", "what", "how", "with", "which", "is", "for", "did", "would", "can", "a", "an"}
 
-all_durations: list[float] = []  # tous les temps de génération (s)
+RESULTS_FILE = ROOT / "tests" / "scenarios" / "derniers_resultats.json"
+
+# Tous les temps de génération (s), par type : question, analyse, avis
+durations: dict[str, list[float]] = {"question": [], "analyse": [], "avis": []}
+TIME_LABELS = {
+    "question": "Questions du recruteur",
+    "analyse": "Analyse du CV",
+    "avis": "Avis du recruteur",
+}
 
 
-def timed(function, *args):
+def timed(kind: str, function, *args):
     start = time.perf_counter()
     result = function(*args)
     duration = time.perf_counter() - start
-    all_durations.append(duration)
+    durations[kind].append(duration)
     return result, duration
 
 
@@ -93,14 +102,32 @@ def detect_language(text: str) -> str:
 
 
 def cv_terms(analysis: dict) -> set[str]:
-    """Éléments du CV qu'une question personnalisée peut citer."""
-    terms = list(analysis.get("skills", []))
+    """Éléments du CV qu'une question personnalisée peut citer.
+
+    Chaque élément est aussi découpé aux virgules, parenthèses et tirets :
+    « Application de covoiturage étudiant (React + Express) » donne aussi
+    « Application de covoiturage étudiant », que le recruteur cite sans la parenthèse.
+    """
+    items = list(analysis.get("skills", []))
     for exp in analysis.get("experiences", []):
-        terms += [exp.get("organization", ""), exp.get("title", "")]
+        items += [exp.get("organization", ""), exp.get("title", "")]
     for edu in analysis.get("education", []):
-        terms += [edu.get("school", ""), edu.get("degree", "")]
-    terms += [project.get("name", "") for project in analysis.get("projects", [])]
-    return {normalize(term) for term in terms if len(term.strip()) >= 3}
+        items += [edu.get("school", ""), edu.get("degree", "")]
+    items += [project.get("name", "") for project in analysis.get("projects", [])]
+
+    terms = set()
+    for item in items:
+        for part in [item, *re.split(r"[,()/—–]| - ", item)]:
+            part = normalize(part).strip(" .:")
+            if len(part) >= 3:
+                terms.add(part)
+    return terms
+
+
+def cites_cv(question: str, terms: set[str]) -> bool:
+    """Mot entier seulement : « css » ne doit pas être trouvé dans « accessibilité »."""
+    text = normalize(question)
+    return any(contains_term(text, term) for term in terms)
 
 
 def run_pytest() -> str:
@@ -116,7 +143,7 @@ def run_scenario(scenario: dict) -> dict:
     language = scenario["language"]
     text = extract_text((FIXTURES_DIR / scenario["cv"]).read_bytes())
     analysis_model, analysis_time = timed(
-        analyze_cv, text, scenario["job"], scenario["level"], language
+        "analyse", analyze_cv, text, scenario["job"], scenario["level"], language
     )
     analysis = analysis_model.model_dump()
     state = interviewer.build_state(
@@ -128,7 +155,8 @@ def run_scenario(scenario: dict) -> dict:
     answers = iter(ANSWERS[language])
     while not interviewer.is_finished(state):
         (question, new_state), duration = timed(
-            interviewer.next_question, state, history, scenario["type"], scenario["difficulty"], language
+            "question", interviewer.next_question, state, history,
+            scenario["type"], scenario["difficulty"], language,
         )
         kind = "relance" if new_state["followup_used"] else "question"
         state = new_state
@@ -138,7 +166,7 @@ def run_scenario(scenario: dict) -> dict:
     history.append(("recruiter", interviewer.CLOSING_MESSAGE[language]))
 
     report, evaluation_time = timed(
-        evaluate_interview, history, state, scenario["type"], scenario["difficulty"], language
+        "avis", evaluate_interview, history, state, scenario["type"], scenario["difficulty"], language
     )
 
     terms = cv_terms(analysis)
@@ -149,7 +177,7 @@ def run_scenario(scenario: dict) -> dict:
         "total": state["total"],
         "asked": len(questions),
         "followups": sum(turn["kind"] == "relance" for turn in turns),
-        "cv_cited": sum(any(term in normalize(q) for term in terms) for q in questions),
+        "cv_cited": sum(cites_cv(q, terms) for q in questions),
         "language_ok": all(detect_language(q) == language for q in questions),
         "repeats": len(questions) - len(set(questions)),
         "avg_time": statistics.mean(times),
@@ -159,6 +187,7 @@ def run_scenario(scenario: dict) -> dict:
         "average": average_score(report),
         "turns": turns,
         "skills": analysis["skills"],
+        "analysis": analysis,
     }
 
 
@@ -172,7 +201,7 @@ def run_judgement() -> list[dict]:
     for row in rows:
         messages = [("recruiter", row["question"]), ("candidate", row["reponse"])]
         try:
-            report, _ = timed(evaluate_interview, messages, state, "mixte", "intermediaire", "fr")
+            report, _ = timed("avis", evaluate_interview, messages, state, "mixte", "intermediaire", "fr")
             model_score = average_score(report)
         except (LLMError, LLMJSONError) as error:
             print(f"  {row['id']} : échec ({error})")
@@ -268,19 +297,31 @@ def write_report(pytest_line: str, scenarios: list[dict], judgement: list[dict])
             f"- Corrélation (Pearson) entre notes humaines et notes IA : **{correlation:.2f}**",
         ]
 
-    lines += ["", "## 4. Temps de réponse", ""]
-    if all_durations:
-        sorted_times = sorted(all_durations)
-        p90 = sorted_times[max(0, int(len(sorted_times) * 0.9) - 1)]
-        under_10 = sum(d < 10 for d in all_durations) / len(all_durations)
-        lines += [
-            "| Générations | Moyenne | Médiane | 90 % sous | Maximum | Sous 10 s |",
-            "|---|---|---|---|---|---|",
-            f"| {len(all_durations)} | {statistics.mean(all_durations):.1f} s | {statistics.median(all_durations):.1f} s "
-            f"| {p90:.1f} s | {max(all_durations):.1f} s | {under_10:.0%} |",
-            "",
-            "Les temps incluent les éventuels réessais automatiques (quota, JSON invalide) et le passage au fournisseur de secours.",
-        ]
+    lines += [
+        "", "## 4. Temps de réponse", "",
+        "Objectif du cahier des charges : moins de 10 s pour une question ou une réponse, hors incident "
+        "réseau ou indisponibilité du modèle.",
+        "",
+        "| Type | Générations | Moyenne | Médiane | 90 % sous | Maximum | Sous 10 s |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for kind, values in durations.items():
+        if not values:
+            continue
+        ordered = sorted(values)
+        p90 = ordered[max(0, int(len(ordered) * 0.9) - 1)]
+        under_10 = sum(v < 10 for v in values)
+        lines.append(
+            f"| {TIME_LABELS[kind]} | {len(values)} | {statistics.mean(values):.1f} s "
+            f"| {statistics.median(values):.1f} s | {p90:.1f} s | {max(values):.1f} s "
+            f"| {under_10}/{len(values)} |"
+        )
+    lines += [
+        "",
+        "Les temps incluent les réessais automatiques (limite de quota gratuit, JSON invalide) et le passage "
+        "au fournisseur de secours. Ce test enchaîne une soixantaine d'appels en quelques minutes, plus vite "
+        "qu'un vrai candidat : les limites du quota gratuit y sont plus souvent atteintes.",
+    ]
 
     ok_scenarios = [s for s in scenarios if "error" not in s]
     lines += [
@@ -295,8 +336,17 @@ def write_report(pytest_line: str, scenarios: list[dict], judgement: list[dict])
     ]
     if len(pairs) >= 2:
         lines.append(f"- {mark(mae <= 1)} Évaluation proche du jugement humain (écart moyen ≤ 1 point)")
-    if all_durations:
-        lines.append(f"- {mark(max(all_durations) < 10)} Toutes les générations sous 10 s (maximum {max(all_durations):.1f} s)")
+    if durations["question"]:
+        worst = max(durations["question"])
+        lines.append(f"- {mark(worst < 10)} Questions du recruteur sous 10 s (maximum {worst:.1f} s)")
+    long_ones = durations["analyse"] + durations["avis"]
+    if long_ones:
+        slow = sum(v >= 10 for v in long_ones)
+        symbol = "✅" if slow == 0 else "⚠️"
+        lines.append(
+            f"- {symbol} Analyse du CV et avis final (générations longues, une seule fois par CV ou par entretien) : "
+            f"{len(long_ones) - slow}/{len(long_ones)} sous 10 s, maximum {max(long_ones):.1f} s"
+        )
     lines += ["", "> Les scores sont pédagogiques et ne constituent pas une décision de recrutement.", ""]
 
     REPORT_FILE.write_text("\n".join(lines), encoding="utf-8")
@@ -322,9 +372,28 @@ def main() -> None:
     print("3/3 — évaluation IA vs jugement humain…")
     judgement = run_judgement()
 
+    # Résultats bruts : permettent de recalculer le rapport sans rappeler le LLM
+    RESULTS_FILE.write_text(
+        json.dumps({"pytest": pytest_line, "scenarios": scenarios, "judgement": judgement,
+                    "durations": durations}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
     write_report(pytest_line, scenarios, judgement)
     print(f"\nRapport écrit dans {REPORT_FILE}")
 
 
+def rebuild() -> None:
+    """Réécrit le rapport à partir des derniers résultats bruts (aucun appel au LLM)."""
+    data = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
+    durations.update(data["durations"])
+    for scenario in data["scenarios"]:
+        if "error" not in scenario:
+            terms = cv_terms(scenario["analysis"])
+            scenario["cv_cited"] = sum(cites_cv(turn["question"], terms) for turn in scenario["turns"])
+    write_report(data["pytest"], data["scenarios"], data["judgement"])
+    print(f"Rapport recalculé dans {REPORT_FILE}")
+
+
 if __name__ == "__main__":
-    main()
+    # python -m tests.manual_scenarios --rebuild : recalcule le rapport sans appeler le LLM
+    rebuild() if "--rebuild" in sys.argv else main()
