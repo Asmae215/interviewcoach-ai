@@ -79,6 +79,42 @@ class AnalyzeRequest(BaseModel):
     consent: bool
 
 
+# --- Entretien avec le recruteur IA (étape 6) ---
+
+InterviewType = Literal["rh", "technique", "comportemental", "mixte"]
+Difficulty = Literal["debutant", "intermediaire", "avance"]
+
+
+class InterviewCreate(BaseModel):
+    interview_type: InterviewType
+    difficulty: Difficulty
+
+
+class AnswerIn(BaseModel):
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    role: str  # "recruiter" ou "candidate"
+    content: str
+    position: int
+
+
+class InterviewOut(BaseModel):
+    id: int
+    candidate_id: int
+    interview_type: str
+    difficulty: str
+    language: str
+    status: str  # "en_cours" ou "terminee"
+    question_number: int  # questions déjà posées
+    total_questions: int
+    messages: list[MessageOut]
+    created_at: datetime
+
+
 class CVOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
