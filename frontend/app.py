@@ -36,6 +36,17 @@ TEXTS = {
         "education": "Formation",
         "projects": "Projets",
         "weaknesses": "Points à renforcer pour le poste",
+        "interview": "5. Entretien avec le recruteur IA",
+        "type": "Type d'entretien",
+        "difficulty": "Difficulté",
+        "start": "Commencer l'entretien",
+        "starting": "Le recruteur prépare sa première question…",
+        "thinking": "Le recruteur réfléchit…",
+        "progress": "Question {n} sur {total}",
+        "your_answer": "Ta réponse…",
+        "not_sent": "Ta réponse n'a pas été envoyée, tu peux la copier et réessayer :",
+        "finished": "Entretien terminé. L'avis du recruteur arrive à l'étape suivante.",
+        "new_interview": "Nouvel entretien",
     },
     "en": {
         "title": "InterviewCoach AI",
@@ -65,11 +76,30 @@ TEXTS = {
         "education": "Education",
         "projects": "Projects",
         "weaknesses": "Areas to strengthen for the job",
+        "interview": "5. Interview with the AI recruiter",
+        "type": "Interview type",
+        "difficulty": "Difficulty",
+        "start": "Start the interview",
+        "starting": "The recruiter is preparing the first question…",
+        "thinking": "The recruiter is thinking…",
+        "progress": "Question {n} of {total}",
+        "your_answer": "Your answer…",
+        "not_sent": "Your answer was not sent, you can copy it and retry:",
+        "finished": "Interview over. The recruiter's feedback comes in the next step.",
+        "new_interview": "New interview",
     },
 }
 LEVELS = {
     "fr": {"etudiant": "Étudiant", "junior": "Junior", "confirme": "Confirmé"},
     "en": {"etudiant": "Student", "junior": "Junior", "confirme": "Experienced"},
+}
+INTERVIEW_TYPES = {
+    "fr": {"rh": "RH", "technique": "Technique", "comportemental": "Comportemental", "mixte": "Mixte"},
+    "en": {"rh": "HR", "technique": "Technical", "comportemental": "Behavioural", "mixte": "Mixed"},
+}
+DIFFICULTIES = {
+    "fr": {"debutant": "Débutant", "intermediaire": "Intermédiaire", "avance": "Avancé"},
+    "en": {"debutant": "Beginner", "intermediaire": "Intermediate", "avance": "Advanced"},
 }
 
 
@@ -182,3 +212,60 @@ if "cv" in st.session_state:
             show_error(response)
     if cv.get("analysis"):
         show_analysis(cv["analysis"], t)
+
+# 5. Entretien : une question à la fois (le backend refuse aussi sans CV analysé)
+if st.session_state.get("cv", {}).get("analysis"):
+    st.header(t["interview"])
+
+    if "interview" not in st.session_state:
+        interview_type = st.selectbox(
+            t["type"], list(INTERVIEW_TYPES[language]), format_func=INTERVIEW_TYPES[language].get
+        )
+        difficulty = st.selectbox(
+            t["difficulty"], list(DIFFICULTIES[language]), index=1, format_func=DIFFICULTIES[language].get
+        )
+        if st.button(t["start"]):
+            with st.spinner(t["starting"]):
+                response = call_api(
+                    "POST",
+                    f"/candidates/{st.session_state.candidate['id']}/interviews",
+                    t,
+                    json={"interview_type": interview_type, "difficulty": difficulty},
+                    timeout=120,
+                )
+            if response is not None and response.status_code == 201:
+                st.session_state.interview = response.json()
+                st.rerun()
+            elif response is not None:
+                show_error(response)
+    else:
+        interview = st.session_state.interview
+        st.progress(
+            interview["question_number"] / interview["total_questions"],
+            text=t["progress"].format(n=interview["question_number"], total=interview["total_questions"]),
+        )
+        for message in interview["messages"]:
+            role = "assistant" if message["role"] == "recruiter" else "user"
+            with st.chat_message(role):
+                st.write(message["content"])
+
+        if interview["status"] == "en_cours":
+            answer = st.chat_input(t["your_answer"])
+            if answer:
+                with st.spinner(t["thinking"]):
+                    response = call_api(
+                        "POST", f"/interviews/{interview['id']}/answers", t,
+                        json={"answer": answer}, timeout=120,
+                    )
+                if response is not None and response.status_code == 200:
+                    st.session_state.interview = response.json()
+                    st.rerun()
+                elif response is not None:
+                    show_error(response)
+                    st.caption(t["not_sent"])
+                    st.code(answer, language=None)
+        else:
+            st.success(t["finished"])
+            if st.button(t["new_interview"]):
+                del st.session_state["interview"]
+                st.rerun()
