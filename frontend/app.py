@@ -1,7 +1,11 @@
 """Interface Streamlit : connexion, entraînement (CV → analyse → entretien → avis), tableau de bord."""
 
 import os
+import sys
+import threading
+import time
 from datetime import datetime
+from pathlib import Path
 
 import altair as alt
 import pandas as pd
@@ -11,6 +15,49 @@ import streamlit as st
 from texts import CRITERIA_COLORS, DIFFICULTIES, INTERVIEW_TYPES, LEVELS, TEXTS
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+
+
+# --- Déploiement sur Streamlit Community Cloud (étape 10) ---
+
+def load_cloud_secrets() -> None:
+    """Recopie les secrets de Streamlit Cloud dans les variables d'environnement lues par le backend."""
+    try:
+        for key, value in st.secrets.items():
+            if isinstance(value, (str, int, float, bool)):
+                os.environ.setdefault(key, str(value))
+    except Exception:  # en local, pas de fichier .streamlit/secrets.toml : on utilise .env
+        pass
+
+
+@st.cache_resource
+def start_embedded_api() -> bool:
+    """Streamlit Cloud n'exécute qu'un processus : l'API FastAPI y démarre en arrière-plan.
+
+    Elle écoute seulement 127.0.0.1 (jamais exposée sur internet). Lancée une seule fois
+    par serveur grâce à st.cache_resource, même si plusieurs candidats se connectent.
+    """
+    root = str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:
+        sys.path.insert(0, root)  # pour « import backend » depuis frontend/app.py
+    import uvicorn
+
+    from backend.main import app as api
+
+    server = uvicorn.Server(uvicorn.Config(api, host="127.0.0.1", port=8000, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True, name="api").start()
+    for _ in range(40):  # au plus 20 s pour démarrer
+        try:
+            if requests.get(f"{API_URL}/health", timeout=1).status_code == 200:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+load_cloud_secrets()
+if os.getenv("EMBEDDED_API") == "1":
+    start_embedded_api()
 
 
 # --- Appels au backend ---
